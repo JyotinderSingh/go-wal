@@ -6,11 +6,12 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/JyotinderSingh/go-wal/wal"
 )
 
-const numEntries = 1000000 // Adjustable parameter for the number of entries
+const numEntries = 10000000 // Adjustable parameter for the number of entries
 
 // BenchmarkWriteThroughput measures the throughput for writing operations
 func BenchmarkWriteThroughput(b *testing.B) {
@@ -23,11 +24,18 @@ func BenchmarkWriteThroughput(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		start := time.Now()
 		for j := 0; j < numEntries; j++ {
 			if err := writeEntry(walog, j); err != nil {
 				b.Error("Write error:", err)
+				return
 			}
 		}
+		duration := time.Since(start)
+
+		// Calculating the throughput: number of entries / total time (in seconds)
+		throughput := float64(numEntries) / duration.Seconds()
+		fmt.Printf("WriteThroughput: %f entries/sec\n", throughput)
 	}
 }
 
@@ -44,14 +52,21 @@ func BenchmarkReadThroughput(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		start := time.Now()
 		if _, err := walog.Recover(); err != nil {
 			b.Error("Recovery error:", err)
+			return
 		}
+		duration := time.Since(start)
+
+		// Calculating the throughput: number of entries / total time (in seconds)
+		throughput := float64(numEntries) / duration.Seconds()
+		fmt.Printf("ReadThroughput: %f entries/sec\n", throughput)
 	}
 }
 
 // BenchmarkConcurrency measures the performance of concurrent writing operations
-func BenchmarkConcurrency(b *testing.B) {
+func BenchmarkConcurrentWriteThroughPut(b *testing.B) {
 	filePath := "benchmark_concurrent.log"
 	walog, err := wal.NewWAL(filePath)
 	if err != nil {
@@ -60,22 +75,31 @@ func BenchmarkConcurrency(b *testing.B) {
 	defer cleanUpWAL(filePath)
 
 	var wg sync.WaitGroup
-	b.ResetTimer()
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < 10000; j++ {
-				if err := writeEntry(walog, j); err != nil {
-					b.Error("Concurrent write error:", err)
-				}
-			}
-		}(i)
-	}
-	wg.Wait()
-}
+	totalEntries := 100 * 10000 // Total entries = number of goroutines * entries per goroutine
 
-// Helper functions
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		start := time.Now()
+
+		for j := 0; j < 100; j++ { // 100 goroutines
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for k := 0; k < numEntries/100; k++ { // 10000 entries per goroutine
+					if err := writeEntry(walog, k); err != nil {
+						b.Error("Concurrent write error:", err)
+						return
+					}
+				}
+			}(j)
+		}
+		wg.Wait()
+
+		duration := time.Since(start)
+		throughput := float64(totalEntries) / duration.Seconds()
+		fmt.Printf("ConcurrentWriteThroughPut: %f entries/sec\n", throughput)
+	}
+}
 
 func cleanUpWAL(filePath string) {
 	if err := os.Remove(filePath); err != nil {
