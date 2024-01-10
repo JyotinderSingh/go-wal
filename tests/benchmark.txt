@@ -1,2 +1,0 @@
-PASS
-ok  	github.com/JyotinderSingh/go-wal/tests	0.713s
