@@ -16,30 +16,36 @@ const (
 
 // WALEntry represents a log entry in the WAL
 type WALEntry struct {
-	Key   string        `json:"key"`
-	Value []byte        `json:"value,omitempty"` // Changed to string for Base64 encoding
-	Op    OperationType `json:"op"`
+	sequenceNumber int64         `json:"sn"`
+	Key            string        `json:"key"`
+	Value          []byte        `json:"value,omitempty"` // Changed to string for Base64 encoding
+	Op             OperationType `json:"op"`
 }
 
 // WAL structure
 type WAL struct {
-	file *os.File
-	lock sync.Mutex
+	file           *os.File
+	lock           sync.Mutex
+	lastSequenceNo int64
 }
 
 // Initialize a new WAL
-func NewWAL(filePath string) (*WAL, error) {
+func OpenWAL(filePath string) (*WAL, error) {
 	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
-	return &WAL{file: file}, nil
+	// TODO: Read last sequence number from file.
+	return &WAL{file: file, lastSequenceNo: 0}, nil
 }
 
 // WriteEntry writes an entry to the WAL
 func (wal *WAL) WriteEntry(entry WALEntry) error {
 	wal.lock.Lock()
 	defer wal.lock.Unlock()
+
+	wal.lastSequenceNo++
+	entry.sequenceNumber = wal.lastSequenceNo
 
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -55,8 +61,8 @@ func (wal *WAL) Close() error {
 	return wal.file.Close()
 }
 
-// Recover from the WAL
-func (wal *WAL) Recover() ([]WALEntry, error) {
+// Read all entries from the WAL
+func (wal *WAL) ReadAll() ([]WALEntry, error) {
 	file, err := os.Open(wal.file.Name())
 	if err != nil {
 		return nil, err

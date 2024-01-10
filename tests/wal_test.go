@@ -13,7 +13,7 @@ func TestWAL_WriteAndRecover(t *testing.T) {
 	filePath := "test_wal.log"
 	defer os.Remove(filePath) // Cleanup after the test
 
-	walog, err := wal.NewWAL(filePath)
+	walog, err := wal.OpenWAL(filePath)
 	if err != nil {
 		t.Fatalf("Failed to create WAL: %v", err)
 	}
@@ -35,13 +35,18 @@ func TestWAL_WriteAndRecover(t *testing.T) {
 	}
 
 	// Recover entries from WAL
-	recoveredEntries, err := walog.Recover()
+	recoveredEntries, err := walog.ReadAll()
 	if err != nil {
 		t.Fatalf("Failed to recover entries: %v", err)
 	}
 
 	// Check if recovered entries match the written entries
-	if !reflect.DeepEqual(entries, recoveredEntries) {
-		t.Errorf("Recovered entries do not match written entries. Written: %+v, Recovered: %+v", entries, recoveredEntries)
+	for entryIndex, entry := range recoveredEntries {
+		// Can't use deep equal because of the sequence number
+		if entry.Key != entries[entryIndex].Key ||
+			entry.Op != entries[entryIndex].Op ||
+			!reflect.DeepEqual(entry.Value, entries[entryIndex].Value) {
+			t.Fatalf("Recovered entry does not match written entry: %v", entry)
+		}
 	}
 }
