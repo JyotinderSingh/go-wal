@@ -30,16 +30,28 @@ type WAL struct {
 
 // Initialize a new WAL
 func OpenWAL(filePath string, enableFsync bool) (*WAL, error) {
+	var err error
 	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Read last sequence number from file.
+
 	wal := &WAL{
 		file:           file,
 		lastSequenceNo: 0,
 		bufWriter:      bufio.NewWriter(file),
 		syncTimer:      time.NewTimer(syncInterval), // syncInterval is a predefined duration
+	}
+
+	// We can optimize this by reading the last entry and setting the
+	// lastSequenceNo, but for now we'll just read all entries.
+	var entries []*walpb.WAL_Entry
+	if entries, err = wal.ReadAll(); err != nil {
+		return nil, err
+	}
+
+	if len(entries) > 0 {
+		wal.lastSequenceNo = entries[len(entries)-1].LogSequenceNumber
 	}
 
 	go wal.keepSyncing()

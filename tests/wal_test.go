@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"reflect"
 	"testing"
@@ -48,6 +49,7 @@ func TestWAL_WriteAndRecover(t *testing.T) {
 	// Check if recovered entries match the written entries
 	for entryIndex, entry := range recoveredEntries {
 		unMarshalledEntry := Record{}
+		log.Printf("LogSequenceNumber: %d", entry.GetLogSequenceNumber())
 		if err := json.Unmarshal(entry.Data, &unMarshalledEntry); err != nil {
 			t.Fatalf("Failed to unmarshal entry: %v", err)
 		}
