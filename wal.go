@@ -1,14 +1,21 @@
 package wal
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
 	"io"
+	"log"
 	"os"
 	"sync"
+	"time"
 
 	walpb "github.com/JyotinderSingh/go-wal/types"
+)
+
+const (
+	syncInterval = 500 * time.Millisecond
 )
 
 // WAL structure
@@ -16,6 +23,8 @@ type WAL struct {
 	file           *os.File
 	lock           sync.Mutex
 	lastSequenceNo int64
+	bufWriter      *bufio.Writer
+	syncTimer      *time.Timer
 }
 
 // Initialize a new WAL
@@ -25,7 +34,16 @@ func OpenWAL(filePath string) (*WAL, error) {
 		return nil, err
 	}
 	// TODO: Read last sequence number from file.
-	return &WAL{file: file, lastSequenceNo: 0}, nil
+	wal := &WAL{
+		file:           file,
+		lastSequenceNo: 0,
+		bufWriter:      bufio.NewWriter(file),
+		syncTimer:      time.NewTimer(syncInterval), // syncInterval is a predefined duration
+	}
+
+	go wal.keepSyncing()
+
+	return wal, nil
 }
 
 // WriteEntry writes an entry to the WAL
@@ -46,16 +64,19 @@ func (wal *WAL) WriteEntry(data []byte) error {
 	marshaledEntry := MustMarshal(&entry)
 
 	size := int32(len(marshaledEntry))
-	if err := binary.Write(wal.file, binary.LittleEndian, size); err != nil {
+	if err := binary.Write(wal.bufWriter, binary.LittleEndian, size); err != nil {
 		return err
 	}
-	_, err := wal.file.Write(marshaledEntry)
+	_, err := wal.bufWriter.Write(marshaledEntry)
 
 	return err
 }
 
 // Close the WAL file
 func (wal *WAL) Close() error {
+	if err := wal.bufWriter.Flush(); err != nil {
+		return err
+	}
 	return wal.file.Close()
 }
 
@@ -101,5 +122,30 @@ func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 
 		// Add the entry to the slice.
 		entries = append(entries, &entry)
+	}
+}
+
+func (wal *WAL) Sync() error {
+	return wal.bufWriter.Flush()
+}
+
+// resetTimer resets the synchronization timer.
+func (wal *WAL) resetTimer() {
+	wal.syncTimer.Reset(syncInterval)
+}
+
+func (wal *WAL) keepSyncing() {
+	for {
+		<-wal.syncTimer.C
+
+		wal.lock.Lock()
+		err := wal.Sync()
+		wal.lock.Unlock()
+
+		if err != nil {
+			log.Printf("Error while performing sync: %v", err)
+		}
+
+		wal.resetTimer()
 	}
 }
