@@ -25,10 +25,11 @@ type WAL struct {
 	lastSequenceNo int64
 	bufWriter      *bufio.Writer
 	syncTimer      *time.Timer
+	shouldFsync    bool
 }
 
 // Initialize a new WAL
-func OpenWAL(filePath string) (*WAL, error) {
+func OpenWAL(filePath string, enableFsync bool) (*WAL, error) {
 	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
@@ -126,7 +127,15 @@ func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 }
 
 func (wal *WAL) Sync() error {
-	return wal.bufWriter.Flush()
+	if err := wal.bufWriter.Flush(); err != nil {
+		return err
+	}
+	if wal.shouldFsync {
+		if err := wal.file.Sync(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // resetTimer resets the synchronization timer.

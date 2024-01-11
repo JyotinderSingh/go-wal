@@ -17,7 +17,7 @@ const numEntries = 10000000 // Adjustable parameter for the number of entries
 // BenchmarkWriteThroughput measures the throughput for writing operations
 func BenchmarkWriteThroughput(b *testing.B) {
 	filePath := "benchmark_write.log"
-	walog, err := wal.OpenWAL(filePath)
+	walog, err := wal.OpenWAL(filePath, true)
 	if err != nil {
 		b.Fatal("Failed to prepare WAL:", err)
 	}
@@ -43,7 +43,7 @@ func BenchmarkWriteThroughput(b *testing.B) {
 // BenchmarkReadThroughput measures the throughput for reading operations
 func BenchmarkReadThroughput(b *testing.B) {
 	filePath := "benchmark_read.log"
-	walog, err := wal.OpenWAL(filePath)
+	walog, err := wal.OpenWAL(filePath, true)
 	if err != nil {
 		b.Fatal("Failed to prepare WAL:", err)
 	}
@@ -69,7 +69,7 @@ func BenchmarkReadThroughput(b *testing.B) {
 // BenchmarkConcurrency measures the performance of concurrent writing operations
 func BenchmarkConcurrentWriteThroughPut(b *testing.B) {
 	filePath := "benchmark_concurrent.log"
-	walog, err := wal.OpenWAL(filePath)
+	walog, err := wal.OpenWAL(filePath, true)
 	if err != nil {
 		b.Fatal("Failed to prepare WAL:", err)
 	}

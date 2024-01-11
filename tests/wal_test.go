@@ -14,7 +14,7 @@ func TestWAL_WriteAndRecover(t *testing.T) {
 	filePath := "test_wal.log"
 	defer os.Remove(filePath) // Cleanup after the test
 
-	walog, err := wal.OpenWAL(filePath)
+	walog, err := wal.OpenWAL(filePath, true)
 	if err != nil {
 		t.Fatalf("Failed to create WAL: %v", err)
 	}
