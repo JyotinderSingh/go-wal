@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -8,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JyotinderSingh/go-wal/wal"
+	"github.com/JyotinderSingh/go-wal"
 )
 
 const numEntries = 10000000 // Adjustable parameter for the number of entries
@@ -108,12 +109,18 @@ func cleanUpWAL(filePath string) {
 }
 
 func writeEntry(walog *wal.WAL, entryID int) error {
-	entry := wal.WALEntry{
-		Op:    wal.InsertOperation,
+	entry := Record{
+		Op:    InsertOperation,
 		Key:   "key" + strconv.Itoa(entryID),
 		Value: []byte("value" + strconv.Itoa(entryID)),
 	}
-	return walog.WriteEntry(entry)
+
+	marshaledEntry, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+
+	return walog.WriteEntry(marshaledEntry)
 }
 
 func prepopulateWAL(walog *wal.WAL, count int, b *testing.B) {

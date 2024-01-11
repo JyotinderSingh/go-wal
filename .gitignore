@@ -27,3 +27,5 @@ env.bash
 
 # docker-compose volume
 data/
+
+types.pb.go
