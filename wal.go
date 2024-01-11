@@ -2,6 +2,8 @@ package wal
 
 import (
 	"encoding/binary"
+	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
 	"sync"
@@ -38,6 +40,9 @@ func (wal *WAL) WriteEntry(data []byte) error {
 		Data:              data,
 	}
 
+	// Set the CRC field
+	entry.CRC = crc32.ChecksumIEEE(entry.GetData())
+
 	marshaledEntry := MustMarshal(&entry)
 
 	size := int32(len(marshaledEntry))
@@ -61,6 +66,8 @@ func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 		return nil, err
 	}
 
+	defer file.Close()
+
 	var entries []*walpb.WAL_Entry
 
 	for {
@@ -83,6 +90,14 @@ func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 		// Deserialize the entry.
 		var entry walpb.WAL_Entry
 		MustUnmarshal(data, &entry)
+
+		// Verify CRC
+		expectedCRC := entry.CRC
+		entry.CRC = 0 // Reset CRC to compute
+		actualCRC := crc32.ChecksumIEEE(entry.GetData())
+		if expectedCRC != actualCRC {
+			return []*walpb.WAL_Entry{}, fmt.Errorf("CRC mismatch: data may be corrupted")
+		}
 
 		// Add the entry to the slice.
 		entries = append(entries, &entry)
