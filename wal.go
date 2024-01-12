@@ -36,6 +36,11 @@ func OpenWAL(filePath string, enableFsync bool) (*WAL, error) {
 		return nil, err
 	}
 
+	// Seek to the end of the file
+	if _, err = file.Seek(0, io.SeekEnd); err != nil {
+		return nil, err
+	}
+
 	wal := &WAL{
 		file:           file,
 		lastSequenceNo: 0,
@@ -97,6 +102,11 @@ func (wal *WAL) Close() error {
 func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 	file, err := os.OpenFile(wal.file.Name(), os.O_RDONLY, 0644)
 	if err != nil {
+		return nil, err
+	}
+
+	// Seek to the beginning of the file
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
 
