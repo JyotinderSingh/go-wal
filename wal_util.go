@@ -36,23 +36,23 @@ func verifyCRC(entry *walpb.WAL_Entry) bool {
 }
 
 // Finds the last segment ID from the given list of files.
-func findLastSegmentIdinFiles(files []string) (uint, error) {
-	var lastSegmentID uint
+func findLastSegmentIndexinFiles(files []string) (int, error) {
+	var lastSegmentID int
 	for _, file := range files {
 		_, fileName := filepath.Split(file)
 		segmentID, err := strconv.Atoi(strings.TrimPrefix(fileName, "segment-"))
 		if err != nil {
 			return 0, err
 		}
-		if uint(segmentID) > lastSegmentID {
-			lastSegmentID = uint(segmentID)
+		if segmentID > lastSegmentID {
+			lastSegmentID = segmentID
 		}
 	}
 	return lastSegmentID, nil
 }
 
 // Creates a log segment file with the given segment ID in the given directory.
-func createSegmentFile(directory string, segmentID uint) (*os.File, error) {
+func createSegmentFile(directory string, segmentID int) (*os.File, error) {
 	filePath := filepath.Join(directory, fmt.Sprintf("segment-%d", segmentID))
 	file, err := os.Create(filePath)
 	if err != nil {

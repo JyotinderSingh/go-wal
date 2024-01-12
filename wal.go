@@ -9,6 +9,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,12 +33,12 @@ type WAL struct {
 	syncTimer           *time.Timer
 	shouldFsync         bool
 	maxFileSize         int64
-	maxSegments         uint
-	currentSegmentIndex uint
+	maxSegments         int
+	currentSegmentIndex int
 }
 
 // Initialize a new WAL
-func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments uint) (*WAL, error) {
+func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments int) (*WAL, error) {
 	// Create the directory if it doesn't exist
 	if err := os.MkdirAll(directory, 0755); err != nil {
 		return nil, err
@@ -48,10 +50,10 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 		return nil, err
 	}
 
-	var lastSegmentID uint
+	var lastSegmentID int
 	if len(files) > 0 {
 		// Find the last segment ID
-		lastSegmentID, err = findLastSegmentIdinFiles(files)
+		lastSegmentID, err = findLastSegmentIndexinFiles(files)
 		if err != nil {
 			return nil, err
 		}
@@ -196,29 +198,77 @@ func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 	}
 	defer file.Close()
 
+	entries, err := readAllEntriesFromFile(file)
+	if err != nil {
+		return entries, err
+	}
+
+	return entries, nil
+}
+
+// Starts reading from log segment files starting from the given offset
+// (Segment Index) and returns all the entries
+func (wal *WAL) ReadAllFromOffset(offset int) ([]*walpb.WAL_Entry, error) {
+	// Get the list of log segment files in the directory
+	files, err := filepath.Glob(filepath.Join(wal.directory, segmentPrefix+"*"))
+	if err != nil {
+		return nil, err
+	}
+
 	var entries []*walpb.WAL_Entry
 
-	for {
-		var size int32
-		if err := binary.Read(file, binary.LittleEndian, &size); err != nil {
-			if err == io.EOF {
-				return entries, nil
-			}
-			return nil, err
+	for _, file := range files {
+		// Get the segment index from the file name
+		segmentIndex, err := strconv.Atoi(strings.TrimPrefix(file,
+			filepath.Join(wal.directory, "segment-")))
+		if err != nil {
+			return entries, err
 		}
 
-		data := make([]byte, size)
-		if _, err := io.ReadFull(file, data); err != nil {
-			return nil, err
+		if segmentIndex < offset {
+			continue
 		}
 
-		entry, err := unmarshalAndVerifyEntry(data)
+		file, err := os.OpenFile(file, os.O_RDONLY, 0644)
 		if err != nil {
 			return nil, err
 		}
 
+		entries_from_segment, err := readAllEntriesFromFile(file)
+		if err != nil {
+			return entries, err
+		}
+
+		entries = append(entries, entries_from_segment...)
+	}
+
+	return entries, nil
+}
+
+func readAllEntriesFromFile(file *os.File) ([]*walpb.WAL_Entry, error) {
+	var entries []*walpb.WAL_Entry
+	for {
+		var size int32
+		if err := binary.Read(file, binary.LittleEndian, &size); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return entries, err
+		}
+
+		data := make([]byte, size)
+		if _, err := io.ReadFull(file, data); err != nil {
+			return entries, err
+		}
+
+		entry, err := unmarshalAndVerifyEntry(data)
+		if err != nil {
+			return entries, err
+		}
+
 		entries = append(entries, entry)
 	}
+	return entries, nil
 }
 
 // Writes out any data in the WAL's in-memory buffer to the segment file. If
@@ -268,10 +318,10 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 		return nil, err
 	}
 
-	var lastSegmentID uint
+	var lastSegmentID int
 	if len(files) > 0 {
 		// Find the last segment ID
-		lastSegmentID, err = findLastSegmentIdinFiles(files)
+		lastSegmentID, err = findLastSegmentIndexinFiles(files)
 		if err != nil {
 			return nil, err
 		}

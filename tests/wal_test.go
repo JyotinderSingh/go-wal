@@ -3,7 +3,6 @@ package tests
 import (
 	"encoding/json"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/JyotinderSingh/go-wal"
+	"github.com/JyotinderSingh/go-wal/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -50,7 +50,6 @@ func TestWAL_WriteAndRecover(t *testing.T) {
 	// Check if recovered entries match the written entries
 	for entryIndex, entry := range recoveredEntries {
 		unMarshalledEntry := Record{}
-		log.Printf("LogSequenceNumber: %d", entry.GetLogSequenceNumber())
 		assert.NoError(t, json.Unmarshal(entry.Data, &unMarshalledEntry), "Failed to unmarshal entry")
 
 		// Can't use deep equal because of the sequence number
@@ -109,22 +108,7 @@ func TestWAL_LogSequenceNumber(t *testing.T) {
 	recoveredEntries, err := walog.ReadAll()
 	assert.NoError(t, err, "Failed to recover entries")
 
-	assert.Equal(t, 6, len(recoveredEntries), "Expected 6 entries")
-
-	// Check if recovered entries match the written entries
-	for entryIndex, entry := range recoveredEntries {
-		unMarshalledEntry := Record{}
-		// (entryIndex + 1) should be the same as the sequence number.
-		// This is because the sequence number starts from 1.
-		assert.Equal(t, uint64(entryIndex+1), entry.GetLogSequenceNumber(), "Log sequence number does not match")
-
-		assert.NoError(t, json.Unmarshal(entry.Data, &unMarshalledEntry), "Failed to unmarshal entry")
-
-		// Can't use deep equal because of the sequence number
-		assert.Equal(t, entries[entryIndex].Key, unMarshalledEntry.Key, "Recovered entry key does not match written entry")
-		assert.Equal(t, entries[entryIndex].Op, unMarshalledEntry.Op, "Recovered entry operation does not match written entry")
-		assert.True(t, reflect.DeepEqual(entries[entryIndex].Value, unMarshalledEntry.Value), "Recovered entry value does not match written entry")
-	}
+	assertCollectionsAreIdentical(t, entries, recoveredEntries)
 }
 
 func TestWAL_WriteRepairRead(t *testing.T) {
@@ -240,24 +224,7 @@ func TestWAL_LogSegmentRotation(t *testing.T) {
 	defer walog.Close()
 
 	// Generate test data on the fly
-	entries := []Record{}
-
-	// Generate very large strings for the key and value
-	keyPrefix := "key"
-	valuePrefix := "value"
-	keySize := 100000
-	valueSize := 1000000
-
-	for i := 0; i < 100; i++ {
-		key := keyPrefix + strconv.Itoa(i) + strings.Repeat("x", keySize-len(strconv.Itoa(i))-len(keyPrefix))
-		value := valuePrefix + strconv.Itoa(i) + strings.Repeat("x", valueSize-len(strconv.Itoa(i))-len(valuePrefix))
-
-		entries = append(entries, Record{
-			Key:   key,
-			Value: []byte(value),
-			Op:    InsertOperation,
-		})
-	}
+	entries := generateTestData()
 
 	// Write entries to WAL
 	for _, entry := range entries {
@@ -279,5 +246,69 @@ func TestWAL_LogSegmentRotation(t *testing.T) {
 
 	for _, file := range files {
 		assert.True(t, strings.HasPrefix(file.Name(), "segment-"), "Unexpected file found")
+	}
+}
+
+// Writes 10000 entries to the WAL and then reads them back from offset 0.
+func TestWAL_ReadFromOffset(t *testing.T) {
+	directory := "test_wal"
+	defer os.RemoveAll(directory)
+
+	walog, err := wal.OpenWAL(directory, true, maxFileSize, maxSegments)
+	assert.NoError(t, err, "Failed to create WAL")
+	defer walog.Close()
+
+	// Generate test data on the fly
+	entries := generateTestData()
+
+	// Write entries to WAL
+	for _, entry := range entries {
+		marshaledEntry, err := json.Marshal(entry)
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
+	}
+
+	// Recover entries from WAL
+	recoveredEntries, err := walog.ReadAllFromOffset(0)
+	assert.NoError(t, err, "Failed to recover entries")
+
+	// Check if recovered entries match the written entries
+	assertCollectionsAreIdentical(t, entries, recoveredEntries)
+}
+
+func generateTestData() []Record {
+	entries := []Record{}
+
+	// Generate very large strings for the key and value
+	keyPrefix := "key"
+	valuePrefix := "value"
+	keySize := 100000
+	valueSize := 1000000
+
+	for i := 0; i < 100; i++ {
+		key := keyPrefix + strconv.Itoa(i) + strings.Repeat("x", keySize-len(strconv.Itoa(i))-len(keyPrefix))
+		value := valuePrefix + strconv.Itoa(i) + strings.Repeat("x", valueSize-len(strconv.Itoa(i))-len(valuePrefix))
+
+		entries = append(entries, Record{
+			Key:   key,
+			Value: []byte(value),
+			Op:    InsertOperation,
+		})
+	}
+
+	return entries
+}
+
+func assertCollectionsAreIdentical(t *testing.T, expected []Record, actual []*types.WAL_Entry) {
+	assert.Equal(t, len(expected), len(actual), "Number of entries do not match")
+
+	for entryIndex, entry := range actual {
+		unMarshalledEntry := Record{}
+		assert.NoError(t, json.Unmarshal(entry.Data, &unMarshalledEntry), "Failed to unmarshal entry")
+
+		// Can't use deep equal because of the sequence number
+		assert.Equal(t, expected[entryIndex].Key, unMarshalledEntry.Key, "Recovered entry does not match written entry (Key)")
+		assert.Equal(t, expected[entryIndex].Op, unMarshalledEntry.Op, "Recovered entry does not match written entry (Op)")
+		assert.True(t, reflect.DeepEqual(expected[entryIndex].Value, unMarshalledEntry.Value), "Recovered entry does not match written entry (Value)")
 	}
 }

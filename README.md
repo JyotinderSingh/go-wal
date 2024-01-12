@@ -40,6 +40,12 @@ if err != nil {
 }
 ```
 
+You can also read from a given offset (inclusive) using the `ReadAllFromOffset` method. This method returns all the entries from the WAL starting from given log segment offset.
+
+```go
+entries, err := wal.ReadAllFromOffset(offset)
+```
+
 ### Repairing the WAL
 
 You can repair a corrupted WAL using the `Repair` method. This method returns the repaired entries, and atomically replaces the corrupted WAL file with the repaired one.
