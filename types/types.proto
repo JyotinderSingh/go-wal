@@ -3,7 +3,7 @@ syntax = "proto3";
 option go_package = "github.com/JyotinderSingh/go-wal/types";
 
 message WAL_Entry {
-    int64   logSequenceNumber = 1;
+    uint64   logSequenceNumber = 1;
     bytes   data = 2;
     uint32  CRC = 3;
 }
