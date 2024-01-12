@@ -16,8 +16,8 @@ const numEntries = 10_000_000 // Adjustable parameter for the number of entries
 
 // BenchmarkWriteThroughput measures the throughput for writing operations
 func BenchmarkWriteThroughput(b *testing.B) {
-	filePath := "benchmark_write.log"
-	walog, err := wal.OpenWAL(filePath, true)
+	filePath := "benchmark_write"
+	walog, err := wal.OpenWAL(filePath, true, maxFileSize, maxSegments)
 	if err != nil {
 		b.Fatal("Failed to prepare WAL:", err)
 	}
@@ -42,8 +42,8 @@ func BenchmarkWriteThroughput(b *testing.B) {
 
 // BenchmarkReadThroughput measures the throughput for reading operations
 func BenchmarkReadThroughput(b *testing.B) {
-	filePath := "benchmark_read.log"
-	walog, err := wal.OpenWAL(filePath, true)
+	filePath := "benchmark_read"
+	walog, err := wal.OpenWAL(filePath, true, maxFileSize, maxSegments)
 	if err != nil {
 		b.Fatal("Failed to prepare WAL:", err)
 	}
@@ -68,8 +68,8 @@ func BenchmarkReadThroughput(b *testing.B) {
 
 // BenchmarkConcurrency measures the performance of concurrent writing operations
 func BenchmarkConcurrentWriteThroughPut(b *testing.B) {
-	filePath := "benchmark_concurrent.log"
-	walog, err := wal.OpenWAL(filePath, true)
+	filePath := "benchmark_concurrent"
+	walog, err := wal.OpenWAL(filePath, true, maxFileSize, maxSegments)
 	if err != nil {
 		b.Fatal("Failed to prepare WAL:", err)
 	}
@@ -102,9 +102,9 @@ func BenchmarkConcurrentWriteThroughPut(b *testing.B) {
 	}
 }
 
-func cleanUpWAL(filePath string) {
-	if err := os.Remove(filePath); err != nil {
-		fmt.Println("Error cleaning up WAL file:", err)
+func cleanUpWAL(directory string) {
+	if err := os.RemoveAll(directory); err != nil {
+		fmt.Println("Error removing directory:", err)
 	}
 }
 
