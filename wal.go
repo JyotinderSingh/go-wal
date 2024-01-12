@@ -12,6 +12,7 @@ import (
 	"time"
 
 	walpb "github.com/JyotinderSingh/go-wal/types"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -223,9 +224,15 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 		}
 
 		// Deserialize the entry.
-		entry, err := unmarshalAndVerifyEntry(data)
+		var entry walpb.WAL_Entry
+		if err := proto.Unmarshal(data, &entry); err != nil {
+			if err := wal.replaceWithFixedFile(entries); err != nil {
+				return entries, err
+			}
+			return entries, nil
+		}
 
-		if err != nil {
+		if !verifyCRC(&entry) {
 			log.Printf("CRC mismatch: data may be corrupted")
 			// Truncate the file at this point
 			if err := wal.replaceWithFixedFile(entries); err != nil {
@@ -236,7 +243,7 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 		}
 
 		// Add the entry to the slice.
-		entries = append(entries, entry)
+		entries = append(entries, &entry)
 	}
 }
 
@@ -293,6 +300,7 @@ func unmarshalAndVerifyEntry(data []byte) (*walpb.WAL_Entry, error) {
 
 func verifyCRC(entry *walpb.WAL_Entry) bool {
 	expectedCRC := entry.CRC
+	// Reset the entry CRC for the verification.
 	entry.CRC = 0
 	actualCRC := crc32.ChecksumIEEE(entry.GetData())
 	entry.CRC = expectedCRC

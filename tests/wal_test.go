@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"io"
 	"log"
 	"os"
 	"reflect"
@@ -168,4 +169,54 @@ func TestWAL_WriteRepairRead(t *testing.T) {
 	assert.Equal(t, "entry1", string(entries[0].Data))
 	assert.Equal(t, "entry2", string(entries[1].Data))
 	assert.Equal(t, "entry3", string(entries[2].Data))
+}
+
+// Similar to previous function, but with a different corruption pattern
+// (corrupting the CRC instead of writing random data).
+func TestWAL_WriteRepairRead2(t *testing.T) {
+	filepath := "test.wal"
+
+	defer os.Remove(filepath)
+
+	// Create a new WAL
+	walog, err := wal.OpenWAL(filepath, true)
+	assert.NoError(t, err)
+
+	// Write some entries to the WAL
+	err = walog.WriteEntry([]byte("entry1"))
+	assert.NoError(t, err)
+	err = walog.WriteEntry([]byte("entry2"))
+	assert.NoError(t, err)
+
+	walog.Close()
+
+	// Corrupt the WAL by writing some random data
+	file, err := os.OpenFile(filepath, os.O_WRONLY, 0644)
+	assert.NoError(t, err)
+
+	// Read the last entry
+	entries, err := walog.ReadAll()
+	assert.NoError(t, err)
+	lastEntry := entries[len(entries)-1]
+
+	// Corrupt the CRC
+	lastEntry.CRC = 0
+	marshaledEntry := wal.MustMarshal(lastEntry)
+
+	// Seek to the last entry
+	_, err = file.Seek(-int64(len(marshaledEntry)), io.SeekEnd)
+	assert.NoError(t, err)
+
+	_, err = file.Write(marshaledEntry)
+	assert.NoError(t, err)
+
+	file.Close()
+
+	// Repair the WAL
+	entries, err = walog.Repair()
+	assert.NoError(t, err)
+
+	// Check that the correct entries were recovered
+	assert.Equal(t, 1, len(entries))
+	assert.Equal(t, "entry1", string(entries[0].Data))
 }
