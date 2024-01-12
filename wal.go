@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	syncInterval = 500 * time.Millisecond
+	syncInterval = 200 * time.Millisecond
 )
 
 // WAL structure
@@ -69,17 +69,27 @@ func (wal *WAL) WriteEntry(data []byte) error {
 	wal.lock.Lock()
 	defer wal.lock.Unlock()
 
-	wal.lastSequenceNo++
-
-	entry := walpb.WAL_Entry{
-		LogSequenceNumber: wal.lastSequenceNo,
-		Data:              data,
+	entry, err := wal.createEntry(data)
+	if err != nil {
+		return err
 	}
 
-	// Set the CRC field
-	entry.CRC = crc32.ChecksumIEEE(entry.GetData())
+	return wal.writeEntryToBuffer(entry)
+}
 
-	marshaledEntry := MustMarshal(&entry)
+func (wal *WAL) createEntry(data []byte) (*walpb.WAL_Entry, error) {
+	wal.lastSequenceNo++
+	entry := &walpb.WAL_Entry{
+		LogSequenceNumber: wal.lastSequenceNo,
+		Data:              data,
+		CRC:               crc32.ChecksumIEEE(data),
+	}
+
+	return entry, nil
+}
+
+func (wal *WAL) writeEntryToBuffer(entry *walpb.WAL_Entry) error {
+	marshaledEntry := MustMarshal(entry)
 
 	size := int32(len(marshaledEntry))
 	if err := binary.Write(wal.bufWriter, binary.LittleEndian, size); err != nil {
@@ -104,47 +114,30 @@ func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Seek to the beginning of the file
-	if _, err = file.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-
 	defer file.Close()
 
 	var entries []*walpb.WAL_Entry
 
 	for {
-		// Read the size of the next entry.
 		var size int32
 		if err := binary.Read(file, binary.LittleEndian, &size); err != nil {
 			if err == io.EOF {
-				// End of file reached, return what we have.
 				return entries, nil
 			}
 			return nil, err
 		}
 
-		// Read the entry data.
 		data := make([]byte, size)
 		if _, err := io.ReadFull(file, data); err != nil {
 			return nil, err
 		}
 
-		// Deserialize the entry.
-		var entry walpb.WAL_Entry
-		MustUnmarshal(data, &entry)
-
-		// Verify CRC
-		expectedCRC := entry.CRC
-		entry.CRC = 0 // Reset CRC to compute
-		actualCRC := crc32.ChecksumIEEE(entry.GetData())
-		if expectedCRC != actualCRC {
-			return []*walpb.WAL_Entry{}, fmt.Errorf("CRC mismatch: data may be corrupted")
+		entry, err := unmarshalAndVerifyEntry(data)
+		if err != nil {
+			return nil, err
 		}
 
-		// Add the entry to the slice.
-		entries = append(entries, &entry)
+		entries = append(entries, entry)
 	}
 }
 
@@ -181,15 +174,12 @@ func (wal *WAL) keepSyncing() {
 	}
 }
 
-// Repair function that repairs a corrupted WAL. It starts scanning the WAL from the start and
-// tries to read all entries. If it encounters a corrupted entry, it truncates the file at that
-// point and returns the entries that were read before the corruption. It also overwrites the
-// existing WAL file with the repaired entries.
-// It checks the CRC of each entry to verify if it is corrupted. If the CRC is invalid, it
-// truncates the file at that point and returns the entries that were read before the corruption.
-// If there are any errors while trying to read the entries, it returns the entries that were
-// read before the error, and overwrites the existing WAL file with the repaired entries.
-// The function implements a logic similar to ReadAll() to read the entries.
+// Repairs a corrupted WAL by scanning the WAL from the start and reading all
+// entries until a corrupted entry is encountered, at which point the file is
+// truncated. The function returns the entries that were read before the
+// corruption and overwrites the existing WAL file with the repaired entries.
+// It checks the CRC of each entry to verify if it is corrupted, and if the CRC
+// is invalid, the file is truncated at that point.
 func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 	// Open the file
 	file, err := os.OpenFile(wal.file.Name(), os.O_RDWR, 0644)
@@ -197,12 +187,12 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 		return nil, err
 	}
 
+	defer file.Close()
+
 	// Seek to the beginning of the file
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
-
-	defer file.Close()
 
 	var entries []*walpb.WAL_Entry
 
@@ -233,14 +223,9 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 		}
 
 		// Deserialize the entry.
-		var entry walpb.WAL_Entry
-		MustUnmarshal(data, &entry)
+		entry, err := unmarshalAndVerifyEntry(data)
 
-		// Verify CRC
-		expectedCRC := entry.CRC
-		entry.CRC = 0 // Reset CRC to compute
-		actualCRC := crc32.ChecksumIEEE(entry.GetData())
-		if expectedCRC != actualCRC {
+		if err != nil {
 			log.Printf("CRC mismatch: data may be corrupted")
 			// Truncate the file at this point
 			if err := wal.replaceWithFixedFile(entries); err != nil {
@@ -249,19 +234,16 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 
 			return entries, nil
 		}
-		entry.CRC = expectedCRC
 
 		// Add the entry to the slice.
-		entries = append(entries, &entry)
+		entries = append(entries, entry)
 	}
 }
 
-// replaceWithFixedFile replaces the existing WAL file with the given entries.
-// It first creates a new temporary WAL file and writes the entries to it.
-// Then it renames the temporary file to the original file name and replaces the
-// existing WAL file.
+// replaceWithFixedFile replaces the existing WAL file with the given entries
+// atomically.
 func (wal *WAL) replaceWithFixedFile(entries []*walpb.WAL_Entry) error {
-	// Create a temporary file
+	// Create a temporary file to make the operation look atomic.
 	tempFilePath := fmt.Sprintf("%s.tmp", wal.file.Name())
 	tempFile, err := os.OpenFile(tempFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -294,4 +276,26 @@ func (wal *WAL) replaceWithFixedFile(entries []*walpb.WAL_Entry) error {
 	}
 
 	return nil
+}
+
+// unmarshalAndVerifyEntry unmarshals the given data into a WAL entry and
+// verifies the CRC of the entry. Only returns an error if the CRC is invalid.
+func unmarshalAndVerifyEntry(data []byte) (*walpb.WAL_Entry, error) {
+	var entry walpb.WAL_Entry
+	MustUnmarshal(data, &entry)
+
+	if !verifyCRC(&entry) {
+		return nil, fmt.Errorf("CRC mismatch: data may be corrupted")
+	}
+
+	return &entry, nil
+}
+
+func verifyCRC(entry *walpb.WAL_Entry) bool {
+	expectedCRC := entry.CRC
+	entry.CRC = 0
+	actualCRC := crc32.ChecksumIEEE(entry.GetData())
+	entry.CRC = expectedCRC
+
+	return expectedCRC == actualCRC
 }

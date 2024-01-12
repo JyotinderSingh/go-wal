@@ -17,9 +17,7 @@ func TestWAL_WriteAndRecover(t *testing.T) {
 	defer os.Remove(filePath) // Cleanup after the test
 
 	walog, err := wal.OpenWAL(filePath, true)
-	if err != nil {
-		t.Fatalf("Failed to create WAL: %v", err)
-	}
+	assert.NoError(t, err, "Failed to create WAL")
 	defer walog.Close()
 
 	// Test data
@@ -32,33 +30,24 @@ func TestWAL_WriteAndRecover(t *testing.T) {
 	// Write entries to WAL
 	for _, entry := range entries {
 		marshaledEntry, err := json.Marshal(entry)
-		if err != nil {
-			t.Fatalf("Failed to marshal entry: %v", err)
-		}
-		if err := walog.WriteEntry(marshaledEntry); err != nil {
-			t.Fatalf("Failed to write entry: %v", err)
-		}
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
 	}
 
 	// Recover entries from WAL
 	recoveredEntries, err := walog.ReadAll()
-	if err != nil {
-		t.Fatalf("Failed to recover entries: %v", err)
-	}
+	assert.NoError(t, err, "Failed to recover entries")
 
 	// Check if recovered entries match the written entries
 	for entryIndex, entry := range recoveredEntries {
 		unMarshalledEntry := Record{}
 		log.Printf("LogSequenceNumber: %d", entry.GetLogSequenceNumber())
-		if err := json.Unmarshal(entry.Data, &unMarshalledEntry); err != nil {
-			t.Fatalf("Failed to unmarshal entry: %v", err)
-		}
+		assert.NoError(t, json.Unmarshal(entry.Data, &unMarshalledEntry), "Failed to unmarshal entry")
+
 		// Can't use deep equal because of the sequence number
-		if unMarshalledEntry.Key != entries[entryIndex].Key ||
-			unMarshalledEntry.Op != entries[entryIndex].Op ||
-			!reflect.DeepEqual(unMarshalledEntry.Value, entries[entryIndex].Value) {
-			t.Fatalf("Recovered entry does not match written entry: %v", entry)
-		}
+		assert.Equal(t, entries[entryIndex].Key, unMarshalledEntry.Key, "Recovered entry does not match written entry (Key)")
+		assert.Equal(t, entries[entryIndex].Op, unMarshalledEntry.Op, "Recovered entry does not match written entry (Op)")
+		assert.True(t, reflect.DeepEqual(entries[entryIndex].Value, unMarshalledEntry.Value), "Recovered entry does not match written entry (Value)")
 	}
 }
 
@@ -69,9 +58,7 @@ func TestWAL_LogSequenceNumber(t *testing.T) {
 	defer os.Remove(filePath) // Cleanup after the test
 
 	walog, err := wal.OpenWAL(filePath, true)
-	if err != nil {
-		t.Fatalf("Failed to create WAL: %v", err)
-	}
+	assert.NoError(t, err, "Failed to create WAL")
 
 	// Test data
 	entries := []Record{
@@ -87,74 +74,54 @@ func TestWAL_LogSequenceNumber(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		entry := entries[i]
 		marshaledEntry, err := json.Marshal(entry)
-		if err != nil {
-			t.Fatalf("Failed to marshal entry: %v", err)
-		}
-		if err := walog.WriteEntry(marshaledEntry); err != nil {
-			t.Fatalf("Failed to write entry: %v", err)
-		}
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
 	}
 
 	// Close the WAL
-	if err := walog.Close(); err != nil {
-		t.Fatalf("Failed to close WAL: %v", err)
-	}
+	assert.NoError(t, walog.Close(), "Failed to close WAL")
 
 	// Reopen the WAL
 	walog, err = wal.OpenWAL(filePath, true)
-	if err != nil {
-		t.Fatalf("Failed to reopen WAL: %v", err)
-	}
+	assert.NoError(t, err, "Failed to reopen WAL")
 
 	// Write entries to WAL
 	for i := 3; i < 6; i++ {
 		entry := entries[i]
 		marshaledEntry, err := json.Marshal(entry)
-		if err != nil {
-			t.Fatalf("Failed to marshal entry: %v", err)
-		}
-		if err := walog.WriteEntry(marshaledEntry); err != nil {
-			t.Fatalf("Failed to write entry: %v", err)
-		}
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
 	}
 
 	// Important to ensure the entries are flushed to the disk.
-	walog.Close()
+	assert.NoError(t, walog.Close(), "Failed to close WAL")
 
 	// Recover entries from WAL
 	recoveredEntries, err := walog.ReadAll()
-	if err != nil {
-		t.Fatalf("Failed to recover entries: %v", err)
-	}
+	assert.NoError(t, err, "Failed to recover entries")
 
-	if len(recoveredEntries) != 6 {
-		t.Fatalf("Expected 6 entries, got %d", len(recoveredEntries))
-	}
+	assert.Equal(t, 6, len(recoveredEntries), "Expected 6 entries")
 
 	// Check if recovered entries match the written entries
 	for entryIndex, entry := range recoveredEntries {
 		unMarshalledEntry := Record{}
 		// (entryIndex + 1) should be the same as the sequence number.
 		// This is because the sequence number starts from 1.
-		if entry.GetLogSequenceNumber() != uint64(entryIndex+1) {
-			t.Fatalf("Log sequence number does not match: %d", entry.GetLogSequenceNumber())
-		}
+		assert.Equal(t, uint64(entryIndex+1), entry.GetLogSequenceNumber(), "Log sequence number does not match")
 
-		if err := json.Unmarshal(entry.Data, &unMarshalledEntry); err != nil {
-			t.Fatalf("Failed to unmarshal entry: %v", err)
-		}
+		assert.NoError(t, json.Unmarshal(entry.Data, &unMarshalledEntry), "Failed to unmarshal entry")
+
 		// Can't use deep equal because of the sequence number
-		if unMarshalledEntry.Key != entries[entryIndex].Key ||
-			unMarshalledEntry.Op != entries[entryIndex].Op ||
-			!reflect.DeepEqual(unMarshalledEntry.Value, entries[entryIndex].Value) {
-			t.Fatalf("Recovered entry does not match written entry: %v vs %v", unMarshalledEntry, entries[entryIndex%3])
-		}
+		assert.Equal(t, entries[entryIndex].Key, unMarshalledEntry.Key, "Recovered entry key does not match written entry")
+		assert.Equal(t, entries[entryIndex].Op, unMarshalledEntry.Op, "Recovered entry operation does not match written entry")
+		assert.True(t, reflect.DeepEqual(entries[entryIndex].Value, unMarshalledEntry.Value), "Recovered entry value does not match written entry")
 	}
 }
 
-func TestRepair(t *testing.T) {
+func TestWAL_WriteRepairRead(t *testing.T) {
 	filepath := "test.wal"
 	defer os.Remove(filepath)
+
 	// Create a new WAL
 	walog, err := wal.OpenWAL(filepath, true)
 	assert.NoError(t, err)
