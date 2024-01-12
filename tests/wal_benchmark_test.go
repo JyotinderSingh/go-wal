@@ -12,7 +12,7 @@ import (
 	"github.com/JyotinderSingh/go-wal"
 )
 
-const numEntries = 10000000 // Adjustable parameter for the number of entries
+const numEntries = 10_000_000 // Adjustable parameter for the number of entries
 
 // BenchmarkWriteThroughput measures the throughput for writing operations
 func BenchmarkWriteThroughput(b *testing.B) {

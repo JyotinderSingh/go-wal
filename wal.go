@@ -31,7 +31,6 @@ type WAL struct {
 
 // Initialize a new WAL
 func OpenWAL(filePath string, enableFsync bool) (*WAL, error) {
-	var err error
 	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
@@ -49,15 +48,8 @@ func OpenWAL(filePath string, enableFsync bool) (*WAL, error) {
 		syncTimer:      time.NewTimer(syncInterval), // syncInterval is a predefined duration
 	}
 
-	// We can optimize this by reading the last entry and setting the
-	// lastSequenceNo, but for now we'll just read all entries.
-	var entries []*walpb.WAL_Entry
-	if entries, err = wal.ReadAll(); err != nil {
+	if wal.lastSequenceNo, err = wal.getLastSequenceNo(); err != nil {
 		return nil, err
-	}
-
-	if len(entries) > 0 {
-		wal.lastSequenceNo = entries[len(entries)-1].LogSequenceNumber
 	}
 
 	go wal.keepSyncing()
@@ -127,6 +119,8 @@ func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 			}
 			return nil, err
 		}
+
+		log.Printf("Size: %d", size)
 
 		data := make([]byte, size)
 		if _, err := io.ReadFull(file, data); err != nil {
@@ -306,4 +300,76 @@ func verifyCRC(entry *walpb.WAL_Entry) bool {
 	entry.CRC = expectedCRC
 
 	return expectedCRC == actualCRC
+}
+
+func (wal *WAL) getLastSequenceNo() (uint64, error) {
+	entry, err := wal.getLastEntryInLog()
+	if err != nil {
+		return 0, err
+	}
+
+	if entry != nil {
+		return entry.GetLogSequenceNumber(), nil
+	}
+
+	return 0, nil
+}
+
+// getLastEntryInLog iterates through all the entries of the log and returns the
+// last entry. It employs an efficient method of scanning the files by reading
+// the size of the current entry and directly skipping to the next entry to
+// reach the end of the file.
+func (wal *WAL) getLastEntryInLog() (*walpb.WAL_Entry, error) {
+	file, err := os.OpenFile(wal.file.Name(), os.O_RDONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var previousSize int32
+	var offset int64
+	var entry *walpb.WAL_Entry
+
+	for {
+		var size int32
+		if err := binary.Read(file, binary.LittleEndian, &size); err != nil {
+			if err == io.EOF {
+				// End of file reached, read the last entry at the saved offset.
+				if offset == 0 {
+					return entry, nil
+				}
+
+				if _, err := file.Seek(offset, io.SeekStart); err != nil {
+					return nil, err
+				}
+
+				// Read the entry data.
+				data := make([]byte, previousSize)
+				if _, err := io.ReadFull(file, data); err != nil {
+					return nil, err
+				}
+
+				entry, err = unmarshalAndVerifyEntry(data)
+				if err != nil {
+					return nil, err
+				}
+
+				return entry, nil
+			}
+			return nil, err
+		}
+
+		// Get current offset
+		offset, err = file.Seek(0, io.SeekCurrent)
+		previousSize = size
+
+		if err != nil {
+			return nil, err
+		}
+
+		// Skip to the next entry.
+		if _, err := file.Seek(int64(size), io.SeekCurrent); err != nil {
+			return nil, err
+		}
+	}
 }
