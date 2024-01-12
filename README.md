@@ -4,12 +4,13 @@ go-wal is a Write-Ahead Log (WAL) implementation in Go. It has high read and wri
 
 ## Features
 
-- Write entries to the log
-- Read all entries from the log
+- Write entries to the log.
+- Read all entries from given log segment offset.
+- Read all entries from the last log segment.
 - Log Rotation for efficient startup and recovery.
-- Sync entries to disk at regular intervals
-- CRC32 checksum for data integrity
-- Auto-Repair corrupted WALs
+- Sync entries to disk at regular intervals.
+- CRC32 checksum for data integrity.
+- Auto-Repair corrupted WALs.
 
 ## Usage
 
