@@ -16,12 +16,12 @@ const numEntries = 10_000_000 // Adjustable parameter for the number of entries
 
 // BenchmarkWriteThroughput measures the throughput for writing operations
 func BenchmarkWriteThroughput(b *testing.B) {
-	filePath := "benchmark_write"
-	walog, err := wal.OpenWAL(filePath, true, maxFileSize, maxSegments)
+	directory := "benchmark_write"
+	walog, err := wal.OpenWAL(directory, true, maxFileSize, maxSegments)
 	if err != nil {
 		b.Fatal("Failed to prepare WAL:", err)
 	}
-	defer cleanUpWAL(filePath)
+	defer cleanUpWAL(directory)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -42,12 +42,12 @@ func BenchmarkWriteThroughput(b *testing.B) {
 
 // BenchmarkReadThroughput measures the throughput for reading operations
 func BenchmarkReadThroughput(b *testing.B) {
-	filePath := "benchmark_read"
-	walog, err := wal.OpenWAL(filePath, true, maxFileSize, maxSegments)
+	directory := "benchmark_read"
+	walog, err := wal.OpenWAL(directory, true, maxFileSize, maxSegments)
 	if err != nil {
 		b.Fatal("Failed to prepare WAL:", err)
 	}
-	defer cleanUpWAL(filePath)
+	defer cleanUpWAL(directory)
 
 	prepopulateWAL(walog, numEntries, b)
 
@@ -68,12 +68,12 @@ func BenchmarkReadThroughput(b *testing.B) {
 
 // BenchmarkConcurrency measures the performance of concurrent writing operations
 func BenchmarkConcurrentWriteThroughPut(b *testing.B) {
-	filePath := "benchmark_concurrent"
-	walog, err := wal.OpenWAL(filePath, true, maxFileSize, maxSegments)
+	directory := "benchmark_concurrent"
+	walog, err := wal.OpenWAL(directory, true, maxFileSize, maxSegments)
 	if err != nil {
 		b.Fatal("Failed to prepare WAL:", err)
 	}
-	defer cleanUpWAL(filePath)
+	defer cleanUpWAL(directory)
 
 	var wg sync.WaitGroup
 	totalEntries := 100 * 10000 // Total entries = number of goroutines * entries per goroutine

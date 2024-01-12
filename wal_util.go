@@ -36,7 +36,7 @@ func verifyCRC(entry *walpb.WAL_Entry) bool {
 }
 
 // Finds the last segment ID from the given list of files.
-func findLastSegmentID(files []string) (uint, error) {
+func findLastSegmentIdinFiles(files []string) (uint, error) {
 	var lastSegmentID uint
 	for _, file := range files {
 		_, fileName := filepath.Split(file)

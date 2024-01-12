@@ -17,21 +17,22 @@ import (
 )
 
 const (
-	syncInterval = 200 * time.Millisecond
+	syncInterval  = 200 * time.Millisecond
+	segmentPrefix = "segment-"
 )
 
 // WAL structure
 type WAL struct {
-	directory      string
-	file           *os.File
-	lock           sync.Mutex
-	lastSequenceNo uint64
-	bufWriter      *bufio.Writer
-	syncTimer      *time.Timer
-	shouldFsync    bool
-	maxFileSize    int64
-	maxSegments    uint
-	currentSegment uint
+	directory           string
+	currentSegment      *os.File
+	lock                sync.Mutex
+	lastSequenceNo      uint64
+	bufWriter           *bufio.Writer
+	syncTimer           *time.Timer
+	shouldFsync         bool
+	maxFileSize         int64
+	maxSegments         uint
+	currentSegmentIndex uint
 }
 
 // Initialize a new WAL
@@ -42,7 +43,7 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 	}
 
 	// Get the list of log segment files in the directory
-	files, err := filepath.Glob(filepath.Join(directory, "segment-*"))
+	files, err := filepath.Glob(filepath.Join(directory, segmentPrefix+"*"))
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +51,7 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 	var lastSegmentID uint
 	if len(files) > 0 {
 		// Find the last segment ID
-		lastSegmentID, err = findLastSegmentID(files)
+		lastSegmentID, err = findLastSegmentIdinFiles(files)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +68,7 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 	}
 
 	// Open the last log segment file
-	filePath := filepath.Join(directory, fmt.Sprintf("segment-%d", lastSegmentID))
+	filePath := filepath.Join(directory, fmt.Sprintf("%s%d", segmentPrefix, lastSegmentID))
 	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
@@ -79,15 +80,15 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 	}
 
 	wal := &WAL{
-		directory:      directory,
-		file:           file,
-		lastSequenceNo: 0,
-		bufWriter:      bufio.NewWriter(file),
-		syncTimer:      time.NewTimer(syncInterval), // syncInterval is a predefined duration
-		shouldFsync:    enableFsync,
-		maxFileSize:    maxFileSize,
-		maxSegments:    maxSegments,
-		currentSegment: lastSegmentID,
+		directory:           directory,
+		currentSegment:      file,
+		lastSequenceNo:      0,
+		bufWriter:           bufio.NewWriter(file),
+		syncTimer:           time.NewTimer(syncInterval), // syncInterval is a predefined duration
+		shouldFsync:         enableFsync,
+		maxFileSize:         maxFileSize,
+		maxSegments:         maxSegments,
+		currentSegmentIndex: lastSegmentID,
 	}
 
 	if wal.lastSequenceNo, err = wal.getLastSequenceNo(); err != nil {
@@ -104,12 +105,12 @@ func (wal *WAL) WriteEntry(data []byte) error {
 	wal.lock.Lock()
 	defer wal.lock.Unlock()
 
-	entry, err := wal.createEntry(data)
-	if err != nil {
+	if err := wal.rotateLogIfNeeded(); err != nil {
 		return err
 	}
 
-	if err := wal.rotateLogIfNeeded(); err != nil {
+	entry, err := wal.createEntry(data)
+	if err != nil {
 		return err
 	}
 
@@ -140,7 +141,7 @@ func (wal *WAL) writeEntryToBuffer(entry *walpb.WAL_Entry) error {
 }
 
 func (wal *WAL) rotateLogIfNeeded() error {
-	fileInfo, err := wal.file.Stat()
+	fileInfo, err := wal.currentSegment.Stat()
 	if err != nil {
 		return err
 	}
@@ -159,21 +160,21 @@ func (wal *WAL) rotateLog() error {
 		return err
 	}
 
-	if err := wal.file.Close(); err != nil {
+	if err := wal.currentSegment.Close(); err != nil {
 		return err
 	}
 
-	wal.currentSegment++
-	if wal.currentSegment >= wal.maxSegments {
-		wal.currentSegment = 0
+	wal.currentSegmentIndex++
+	if wal.currentSegmentIndex >= wal.maxSegments {
+		wal.currentSegmentIndex = 0
 	}
 
-	newFile, err := createSegmentFile(wal.directory, wal.currentSegment)
+	newFile, err := createSegmentFile(wal.directory, wal.currentSegmentIndex)
 	if err != nil {
 		return err
 	}
 
-	wal.file = newFile
+	wal.currentSegment = newFile
 	wal.bufWriter = bufio.NewWriter(newFile)
 
 	return nil
@@ -181,15 +182,15 @@ func (wal *WAL) rotateLog() error {
 
 // Close the WAL file
 func (wal *WAL) Close() error {
-	if err := wal.bufWriter.Flush(); err != nil {
+	if err := wal.Sync(); err != nil {
 		return err
 	}
-	return wal.file.Close()
+	return wal.currentSegment.Close()
 }
 
 // Read all entries from the WAL
 func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
-	file, err := os.OpenFile(wal.file.Name(), os.O_RDONLY, 0644)
+	file, err := os.OpenFile(wal.currentSegment.Name(), os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
@@ -220,12 +221,14 @@ func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 	}
 }
 
+// Writes out any data in the WAL's in-memory buffer to the segment file. If
+// fsync is enabled, it also calls fsync on the segment file.
 func (wal *WAL) Sync() error {
 	if err := wal.bufWriter.Flush(); err != nil {
 		return err
 	}
 	if wal.shouldFsync {
-		if err := wal.file.Sync(); err != nil {
+		if err := wal.currentSegment.Sync(); err != nil {
 			return err
 		}
 	}
@@ -260,7 +263,7 @@ func (wal *WAL) keepSyncing() {
 // It checks the CRC of each entry to verify if it is corrupted, and if the CRC
 // is invalid, the file is truncated at that point.
 func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
-	files, err := filepath.Glob(filepath.Join(wal.directory, "segment-*"))
+	files, err := filepath.Glob(filepath.Join(wal.directory, segmentPrefix+"*"))
 	if err != nil {
 		return nil, err
 	}
@@ -268,16 +271,15 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 	var lastSegmentID uint
 	if len(files) > 0 {
 		// Find the last segment ID
-		lastSegmentID, err = findLastSegmentID(files)
+		lastSegmentID, err = findLastSegmentIdinFiles(files)
 		if err != nil {
 			return nil, err
 		}
 	} else {
 		log.Fatalf("No log segments found, nothing to repair.")
 	}
-	// Open the file
 	// Open the last log segment file
-	filePath := filepath.Join(wal.directory, fmt.Sprintf("segment-%d", lastSegmentID))
+	filePath := filepath.Join(wal.directory, fmt.Sprintf("%s%d", segmentPrefix, lastSegmentID))
 	file, err := os.OpenFile(filePath, os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
@@ -346,7 +348,7 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 // atomically.
 func (wal *WAL) replaceWithFixedFile(entries []*walpb.WAL_Entry) error {
 	// Create a temporary file to make the operation look atomic.
-	tempFilePath := fmt.Sprintf("%s.tmp", wal.file.Name())
+	tempFilePath := fmt.Sprintf("%s.tmp", wal.currentSegment.Name())
 	tempFile, err := os.OpenFile(tempFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
@@ -373,13 +375,14 @@ func (wal *WAL) replaceWithFixedFile(entries []*walpb.WAL_Entry) error {
 	}
 
 	// Rename the temporary file to the original file name
-	if err := os.Rename(tempFilePath, wal.file.Name()); err != nil {
+	if err := os.Rename(tempFilePath, wal.currentSegment.Name()); err != nil {
 		return err
 	}
 
 	return nil
 }
 
+// Returns the last sequence number in the current log.
 func (wal *WAL) getLastSequenceNo() (uint64, error) {
 	entry, err := wal.getLastEntryInLog()
 	if err != nil {
@@ -394,11 +397,9 @@ func (wal *WAL) getLastSequenceNo() (uint64, error) {
 }
 
 // getLastEntryInLog iterates through all the entries of the log and returns the
-// last entry. It employs an efficient method of scanning the files by reading
-// the size of the current entry and directly skipping to the next entry to
-// reach the end of the file.
+// last entry.
 func (wal *WAL) getLastEntryInLog() (*walpb.WAL_Entry, error) {
-	file, err := os.OpenFile(wal.file.Name(), os.O_RDONLY, 0644)
+	file, err := os.OpenFile(wal.currentSegment.Name(), os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
