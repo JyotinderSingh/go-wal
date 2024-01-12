@@ -9,8 +9,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -58,7 +56,12 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 		}
 	} else {
 		// Create the first log segment
-		if err := createSegmentFile(directory, 0); err != nil {
+		file, err := createSegmentFile(directory, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := file.Close(); err != nil {
 			return nil, err
 		}
 	}
@@ -94,30 +97,6 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 	go wal.keepSyncing()
 
 	return wal, nil
-}
-
-func findLastSegmentID(files []string) (uint, error) {
-	var lastSegmentID uint
-	for _, file := range files {
-		_, fileName := filepath.Split(file)
-		segmentID, err := strconv.Atoi(strings.TrimPrefix(fileName, "segment-"))
-		if err != nil {
-			return 0, err
-		}
-		if uint(segmentID) > lastSegmentID {
-			lastSegmentID = uint(segmentID)
-		}
-	}
-	return lastSegmentID, nil
-}
-
-func createSegmentFile(directory string, segmentID int) error {
-	filePath := filepath.Join(directory, fmt.Sprintf("segment-%d", segmentID))
-	file, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-	return file.Close()
 }
 
 // WriteEntry writes an entry to the WAL
@@ -189,10 +168,7 @@ func (wal *WAL) rotateLog() error {
 		wal.currentSegment = 0
 	}
 
-	newFileName := fmt.Sprintf("segment-%d", wal.currentSegment)
-	newFilePath := filepath.Join(wal.directory, newFileName)
-
-	newFile, err := os.OpenFile(newFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	newFile, err := createSegmentFile(wal.directory, wal.currentSegment)
 	if err != nil {
 		return err
 	}
@@ -402,29 +378,6 @@ func (wal *WAL) replaceWithFixedFile(entries []*walpb.WAL_Entry) error {
 	}
 
 	return nil
-}
-
-// unmarshalAndVerifyEntry unmarshals the given data into a WAL entry and
-// verifies the CRC of the entry. Only returns an error if the CRC is invalid.
-func unmarshalAndVerifyEntry(data []byte) (*walpb.WAL_Entry, error) {
-	var entry walpb.WAL_Entry
-	MustUnmarshal(data, &entry)
-
-	if !verifyCRC(&entry) {
-		return nil, fmt.Errorf("CRC mismatch: data may be corrupted")
-	}
-
-	return &entry, nil
-}
-
-func verifyCRC(entry *walpb.WAL_Entry) bool {
-	expectedCRC := entry.CRC
-	// Reset the entry CRC for the verification.
-	entry.CRC = 0
-	actualCRC := crc32.ChecksumIEEE(entry.GetData())
-	entry.CRC = expectedCRC
-
-	return expectedCRC == actualCRC
 }
 
 func (wal *WAL) getLastSequenceNo() (uint64, error) {
