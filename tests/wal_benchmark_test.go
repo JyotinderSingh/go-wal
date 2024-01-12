@@ -129,4 +129,6 @@ func prepopulateWAL(walog *wal.WAL, count int, b *testing.B) {
 			b.Fatal("Prepopulate error:", err)
 		}
 	}
+
+	walog.Sync()
 }

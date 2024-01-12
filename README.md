@@ -1,6 +1,6 @@
 # A Write-Ahead-Log for Go
 
-go-wal a simple implementation of a Write-Ahead Log (WAL) in Go.
+go-wal is a Write-Ahead Log (WAL) implementation in Go. It has high read and write throughput, and is suitable to be used in high-performance applications.
 
 ## Features
 
