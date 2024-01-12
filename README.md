@@ -19,7 +19,7 @@ go-wal is a Write-Ahead Log (WAL) implementation in Go. It has high read and wri
 You can create a WAL using the `NewWAL` function. This function takes a file path.
 
 ```go
-wal, err := Open("/wal/directory", enableFsync, maxSegmentSize, maxSegments)
+wal, err := OpenWAL("/wal/directory", enableFsync, maxSegmentSize, maxSegments)
 ```
 
 ### Writing to the WAL
