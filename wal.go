@@ -2,6 +2,7 @@ package wal
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
@@ -36,6 +37,8 @@ type WAL struct {
 	maxFileSize         int64
 	maxSegments         int
 	currentSegmentIndex int
+	ctx                 context.Context
+	cancel              context.CancelFunc
 }
 
 // Initialize a new WAL
@@ -82,6 +85,8 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 		return nil, err
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	wal := &WAL{
 		directory:           directory,
 		currentSegment:      file,
@@ -92,6 +97,8 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 		maxFileSize:         maxFileSize,
 		maxSegments:         maxSegments,
 		currentSegmentIndex: lastSegmentID,
+		ctx:                 ctx,
+		cancel:              cancel,
 	}
 
 	if wal.lastSequenceNo, err = wal.getLastSequenceNo(); err != nil {
@@ -233,6 +240,7 @@ func (wal *WAL) findOldestSegmentFile(files []string) (string, error) {
 
 // Close the WAL file
 func (wal *WAL) Close() error {
+	wal.cancel()
 	if err := wal.Sync(); err != nil {
 		return err
 	}
@@ -341,17 +349,21 @@ func (wal *WAL) resetTimer() {
 
 func (wal *WAL) keepSyncing() {
 	for {
-		<-wal.syncTimer.C
+		select {
+		case <-wal.syncTimer.C:
 
-		wal.lock.Lock()
-		err := wal.Sync()
-		wal.lock.Unlock()
+			wal.lock.Lock()
+			err := wal.Sync()
+			wal.lock.Unlock()
 
-		if err != nil {
-			log.Printf("Error while performing sync: %v", err)
+			if err != nil {
+				log.Printf("Error while performing sync: %v", err)
+			}
+
+			wal.resetTimer()
+		case <-wal.ctx.Done():
+			return
 		}
-
-		wal.resetTimer()
 	}
 }
 
