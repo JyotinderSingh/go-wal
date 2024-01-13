@@ -339,6 +339,10 @@ func (wal *WAL) Sync() error {
 			return err
 		}
 	}
+
+	// Reset the keepSyncing timer, since we just synced.
+	wal.resetTimer()
+
 	return nil
 }
 
@@ -360,7 +364,6 @@ func (wal *WAL) keepSyncing() {
 				log.Printf("Error while performing sync: %v", err)
 			}
 
-			wal.resetTimer()
 		case <-wal.ctx.Done():
 			return
 		}
