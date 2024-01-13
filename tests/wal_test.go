@@ -254,7 +254,7 @@ func TestWAL_OldestLogDeletion(t *testing.T) {
 	dirPath := "test_wal"
 	defer os.RemoveAll(dirPath)
 
-	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, maxSegments)
+	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, 3)
 	assert.NoError(t, err, "Failed to create WAL")
 	defer walog.Close()
 
