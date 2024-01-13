@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	maxSegments = 100
+	maxSegments = 3
 	maxFileSize = 64 * 1000 * 1000 // 64MB
 )
 
@@ -246,6 +247,62 @@ func TestWAL_LogSegmentRotation(t *testing.T) {
 
 	for _, file := range files {
 		assert.True(t, strings.HasPrefix(file.Name(), "segment-"), "Unexpected file found")
+	}
+}
+
+func TestWAL_OldestLogDeletion(t *testing.T) {
+	dirPath := "test_wal"
+	defer os.RemoveAll(dirPath)
+
+	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, maxSegments)
+	assert.NoError(t, err, "Failed to create WAL")
+	defer walog.Close()
+
+	// Generate test data on the fly
+	entries := generateTestData()
+
+	// Write entries to WAL
+	for _, entry := range entries {
+		marshaledEntry, err := json.Marshal(entry)
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
+	}
+
+	// Recover entries from WAL (sanity check)
+	_, err = walog.ReadAll()
+	assert.NoError(t, err, "Failed to recover entries")
+
+	// Validate that only three files should be present inside the directory
+	// with names segment-1, segment-2 and segment-3 were created.
+	// Each file should be 64 mb in size.
+	files, err := os.ReadDir(dirPath)
+	assert.NoError(t, err, "Failed to read directory")
+	assert.Equal(t, 3, len(files), "Expected 3 files")
+
+	for idx, file := range files {
+		assert.Equal(t, file.Name(), fmt.Sprintf("%s%d", "segment-", idx),
+			"Unexpected file found")
+	}
+
+	// Write entries to WAL
+	for _, entry := range entries {
+		marshaledEntry, err := json.Marshal(entry)
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
+	}
+
+	// Recover entries from WAL (sanity check)
+	_, err = walog.ReadAll()
+	assert.NoError(t, err, "Failed to recover entries")
+
+	// Validate that the oldest log file was deleted
+	files, err = os.ReadDir(dirPath)
+	assert.NoError(t, err, "Failed to read directory")
+	assert.Equal(t, 3, len(files), "Expected 3 files")
+
+	for idx, file := range files {
+		assert.Equal(t, file.Name(), fmt.Sprintf("%s%d", "segment-", idx+2),
+			"Unexpected file found")
 	}
 }
 

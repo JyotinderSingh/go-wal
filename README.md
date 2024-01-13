@@ -14,6 +14,8 @@ go-wal is a Write-Ahead Log (WAL) implementation in Go. It has high read and wri
 
 ## Usage
 
+The WAL assumes that at a given time either you are writing to the WAL, or you are reading from it. You cannot write and read from the WAL at the same time.
+
 ### Creating a WAL
 
 You can create a WAL using the `NewWAL` function. This function takes a file path.
@@ -24,7 +26,7 @@ wal, err := OpenWAL("/wal/directory", enableFsync, maxSegmentSize, maxSegments)
 
 ### Writing to the WAL
 
-You can write an entry to the WAL using the `Write` method. This method takes a byte slice as data.
+You can write an entry to the WAL using the `Write` method. This method takes a byte slice as data. This method is thread-safe.
 
 ```go
 err := wal.WriteEntry([]byte("data"))
@@ -50,6 +52,8 @@ entries, err := wal.ReadAllFromOffset(offset)
 ### Repairing the WAL
 
 You can repair a corrupted WAL using the `Repair` method. This method returns the repaired entries, and atomically replaces the corrupted WAL file with the repaired one.
+
+The WAL is capable of recovering from corrupted entries, as well as partial damage to the WAL file. However, if the file is completely corrupted, the WAL may not be able to recover from it and would proceed with replacing the file with an empty one.
 
 ```go
 entries, err := wal.Repair()

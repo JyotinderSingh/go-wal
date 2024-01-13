@@ -7,6 +7,7 @@ import (
 	"hash/crc32"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -168,7 +169,9 @@ func (wal *WAL) rotateLog() error {
 
 	wal.currentSegmentIndex++
 	if wal.currentSegmentIndex >= wal.maxSegments {
-		wal.currentSegmentIndex = 0
+		if err := wal.deleteOldestSegment(); err != nil {
+			return err
+		}
 	}
 
 	newFile, err := createSegmentFile(wal.directory, wal.currentSegmentIndex)
@@ -180,6 +183,52 @@ func (wal *WAL) rotateLog() error {
 	wal.bufWriter = bufio.NewWriter(newFile)
 
 	return nil
+}
+
+// removes the oldest log file
+func (wal *WAL) deleteOldestSegment() error {
+	files, err := filepath.Glob(filepath.Join(wal.directory, segmentPrefix+"*"))
+	if err != nil {
+		return err
+	}
+
+	var oldestSegmentFilePath string
+	if len(files) > 0 {
+		// Find the oldest segment ID
+		oldestSegmentFilePath, err = wal.findOldestSegmentFile(files)
+		if err != nil {
+			return err
+		}
+	} else {
+		return nil
+	}
+
+	// Delete the oldest segment file
+	if err := os.Remove(oldestSegmentFilePath); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (wal *WAL) findOldestSegmentFile(files []string) (string, error) {
+	var oldestSegmentFilePath string
+	oldestSegmentID := math.MaxInt64
+	for _, file := range files {
+		// Get the segment index from the file name
+		segmentIndex, err := strconv.Atoi(strings.TrimPrefix(file,
+			filepath.Join(wal.directory, segmentPrefix)))
+		if err != nil {
+			return "", err
+		}
+
+		if segmentIndex < oldestSegmentID {
+			oldestSegmentID = segmentIndex
+			oldestSegmentFilePath = file
+		}
+	}
+
+	return oldestSegmentFilePath, nil
 }
 
 // Close the WAL file
