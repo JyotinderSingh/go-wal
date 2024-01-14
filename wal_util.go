@@ -26,13 +26,10 @@ func unmarshalAndVerifyEntry(data []byte) (*walpb.WAL_Entry, error) {
 
 // Validates whether the given entry has a valid CRC.
 func verifyCRC(entry *walpb.WAL_Entry) bool {
-	expectedCRC := entry.CRC
 	// Reset the entry CRC for the verification.
-	entry.CRC = 0
-	actualCRC := crc32.ChecksumIEEE(entry.GetData())
-	entry.CRC = expectedCRC
+	actualCRC := crc32.ChecksumIEEE(append(entry.GetData(), byte(entry.GetLogSequenceNumber())))
 
-	return expectedCRC == actualCRC
+	return entry.CRC == actualCRC
 }
 
 // Finds the last segment ID from the given list of files.

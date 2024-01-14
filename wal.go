@@ -132,7 +132,7 @@ func (wal *WAL) createEntry(data []byte) (*walpb.WAL_Entry, error) {
 	entry := &walpb.WAL_Entry{
 		LogSequenceNumber: wal.lastSequenceNo,
 		Data:              data,
-		CRC:               crc32.ChecksumIEEE(data),
+		CRC:               crc32.ChecksumIEEE(append(data, byte(wal.lastSequenceNo))),
 	}
 
 	return entry, nil
