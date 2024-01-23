@@ -12,6 +12,7 @@ go-wal is a Write-Ahead Log (WAL) implementation in Go. It has high read and wri
 - Sync entries to disk at regular intervals.
 - CRC32 checksum for data integrity.
 - Auto-Repair corrupted WALs.
+- Supports checkpoints
 
 ## Usage
 
@@ -33,12 +34,29 @@ You can write an entry to the WAL using the `Write` method. This method takes a 
 err := wal.WriteEntry([]byte("data"))
 ```
 
+### Checkpointing the WAL
+
+You can checkpoint the WAL using the `Checkpoint` method. This method flushes the in-memory buffers and runs a sync to disk (if enabled).
+
+Also allows the user to store application specific data in the checkpoint.
+
+```go
+err := wal.CreateCheckpoint([]byte("checkpoint info"))
+```
+
 ### Reading from the WAL
 
 You can read all entries from the last WAL segment using the `ReadEntries` method.
 
 ```go
-entries, err := wal.ReadAll()
+// Read all entries from last segment.
+entries, err = wal.ReadAll(false)
+if err != nil {
+    log.Fatalf("Failed to read entries: %v", err)
+}
+
+// Read all entries from last segment after the checkpoint
+entries, err = wal.ReadAll(true)
 if err != nil {
     log.Fatalf("Failed to read entries: %v", err)
 }
@@ -47,7 +65,11 @@ if err != nil {
 You can also read from a given offset (inclusive) using the `ReadAllFromOffset` method. This method returns all the entries from the WAL starting from given log segment offset.
 
 ```go
-entries, err := wal.ReadAllFromOffset(offset)
+// Read all entries from a given offset.
+entries, err = wal.ReadAllFromOffset(offset, false)
+
+// Read all entries from a given offset after the checkpoint.
+entries, err = wal.ReadAllFromOffset(offset, true)
 ```
 
 ### Repairing the WAL
