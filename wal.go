@@ -112,6 +112,14 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 
 // WriteEntry writes an entry to the WAL
 func (wal *WAL) WriteEntry(data []byte) error {
+	return wal.writeEntry(data, false)
+}
+
+func (wal *WAL) CreateCheckpoint(data []byte) error {
+	return wal.writeEntry(data, true)
+}
+
+func (wal *WAL) writeEntry(data []byte, isCheckpoint bool) error {
 	wal.lock.Lock()
 	defer wal.lock.Unlock()
 
@@ -119,9 +127,18 @@ func (wal *WAL) WriteEntry(data []byte) error {
 		return err
 	}
 
-	entry, err := wal.createEntry(data)
-	if err != nil {
-		return err
+	wal.lastSequenceNo++
+	entry := &walpb.WAL_Entry{
+		LogSequenceNumber: wal.lastSequenceNo,
+		Data:              data,
+		CRC:               crc32.ChecksumIEEE(append(data, byte(wal.lastSequenceNo))),
+	}
+
+	if isCheckpoint {
+		if err := wal.Sync(); err != nil {
+			return fmt.Errorf("Could not create checkpoint, error while syncing: %v", err)
+		}
+		entry.IsCheckpoint = &isCheckpoint
 	}
 
 	return wal.writeEntryToBuffer(entry)
@@ -133,6 +150,19 @@ func (wal *WAL) createEntry(data []byte) (*walpb.WAL_Entry, error) {
 		LogSequenceNumber: wal.lastSequenceNo,
 		Data:              data,
 		CRC:               crc32.ChecksumIEEE(append(data, byte(wal.lastSequenceNo))),
+	}
+
+	return entry, nil
+}
+
+func (wal *WAL) createCheckpointEntry(data []byte) (*walpb.WAL_Entry, error) {
+	wal.lastSequenceNo++
+	isCheckpoint := true
+	entry := &walpb.WAL_Entry{
+		LogSequenceNumber: wal.lastSequenceNo,
+		Data:              data,
+		CRC:               crc32.ChecksumIEEE(append(data, byte(wal.lastSequenceNo))),
+		IsCheckpoint:      &isCheckpoint,
 	}
 
 	return entry, nil
@@ -248,14 +278,14 @@ func (wal *WAL) Close() error {
 }
 
 // Read all entries from the WAL
-func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
+func (wal *WAL) ReadAll(readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
 	file, err := os.OpenFile(wal.currentSegment.Name(), os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
 
-	entries, err := readAllEntriesFromFile(file)
+	entries, err := readAllEntriesFromFile(file, readFromCheckpoint)
 	if err != nil {
 		return entries, err
 	}
@@ -265,7 +295,7 @@ func (wal *WAL) ReadAll() ([]*walpb.WAL_Entry, error) {
 
 // Starts reading from log segment files starting from the given offset
 // (Segment Index) and returns all the entries
-func (wal *WAL) ReadAllFromOffset(offset int) ([]*walpb.WAL_Entry, error) {
+func (wal *WAL) ReadAllFromOffset(offset int, readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
 	// Get the list of log segment files in the directory
 	files, err := filepath.Glob(filepath.Join(wal.directory, segmentPrefix+"*"))
 	if err != nil {
@@ -291,7 +321,7 @@ func (wal *WAL) ReadAllFromOffset(offset int) ([]*walpb.WAL_Entry, error) {
 			return nil, err
 		}
 
-		entries_from_segment, err := readAllEntriesFromFile(file)
+		entries_from_segment, err := readAllEntriesFromFile(file, readFromCheckpoint)
 		if err != nil {
 			return entries, err
 		}
@@ -302,8 +332,9 @@ func (wal *WAL) ReadAllFromOffset(offset int) ([]*walpb.WAL_Entry, error) {
 	return entries, nil
 }
 
-func readAllEntriesFromFile(file *os.File) ([]*walpb.WAL_Entry, error) {
+func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
 	var entries []*walpb.WAL_Entry
+	var foundCheckpoint bool
 	for {
 		var size int32
 		if err := binary.Read(file, binary.LittleEndian, &size); err != nil {
@@ -323,8 +354,24 @@ func readAllEntriesFromFile(file *os.File) ([]*walpb.WAL_Entry, error) {
 			return entries, err
 		}
 
+		// If we are reading from checkpoint and we find a checkpoint entry, we
+		// we should return the entries from the last checkpoint. So we empty the
+		// entries slice and start appending entries from the checkpoint.
+		if entry.IsCheckpoint != nil && entry.GetIsCheckpoint() {
+			foundCheckpoint = true
+			// Empty the entries slice
+			entries = entries[:0]
+		}
+
 		entries = append(entries, entry)
 	}
+
+	// If we are reading from checkpoint and no checkpoint was found, return an
+	// empty slice.
+	if readFromCheckpoint && !foundCheckpoint {
+		return entries[:0], nil
+	}
+
 	return entries, nil
 }
 

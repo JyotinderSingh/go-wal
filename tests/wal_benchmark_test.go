@@ -54,7 +54,7 @@ func BenchmarkReadThroughput(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
-		if _, err := walog.ReadAll(); err != nil {
+		if _, err := walog.ReadAll(false); err != nil {
 			b.Error("Recovery error:", err)
 			return
 		}

@@ -3,6 +3,7 @@ module github.com/JyotinderSingh/go-wal
 go 1.21.5
 
 require (
+	github.com/JyotinderSingh/go-wal/types v0.0.0-20240123065835-48968da2e91f
 	github.com/stretchr/testify v1.8.4
 	google.golang.org/protobuf v1.32.0
 )

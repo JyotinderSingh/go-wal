@@ -45,7 +45,7 @@ func TestWAL_WriteAndRecover(t *testing.T) {
 	}
 
 	// Recover entries from WAL
-	recoveredEntries, err := walog.ReadAll()
+	recoveredEntries, err := walog.ReadAll(false)
 	assert.NoError(t, err, "Failed to recover entries")
 
 	// Check if recovered entries match the written entries
@@ -106,7 +106,7 @@ func TestWAL_LogSequenceNumber(t *testing.T) {
 	assert.NoError(t, walog.Close(), "Failed to close WAL")
 
 	// Recover entries from WAL
-	recoveredEntries, err := walog.ReadAll()
+	recoveredEntries, err := walog.ReadAll(false)
 	assert.NoError(t, err, "Failed to recover entries")
 
 	assertCollectionsAreIdentical(t, entries, recoveredEntries)
@@ -155,7 +155,7 @@ func TestWAL_WriteRepairRead(t *testing.T) {
 	walog.Close()
 
 	// Check that the correct entries were recovered
-	entries, err = walog.ReadAll()
+	entries, err = walog.ReadAll(false)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 3, len(entries))
@@ -188,7 +188,7 @@ func TestWAL_WriteRepairRead2(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Read the last entry
-	entries, err := walog.ReadAll()
+	entries, err := walog.ReadAll(false)
 	assert.NoError(t, err)
 	lastEntry := entries[len(entries)-1]
 
@@ -235,7 +235,7 @@ func TestWAL_LogSegmentRotation(t *testing.T) {
 	}
 
 	// Recover entries from WAL
-	_, err = walog.ReadAll()
+	_, err = walog.ReadAll(false)
 	assert.NoError(t, err, "Failed to recover entries")
 
 	// Validate that only three files should be present inside the directory
@@ -269,7 +269,7 @@ func TestWAL_OldestLogDeletion(t *testing.T) {
 	}
 
 	// Recover entries from WAL (sanity check)
-	_, err = walog.ReadAll()
+	_, err = walog.ReadAll(false)
 	assert.NoError(t, err, "Failed to recover entries")
 
 	// Validate that only three files should be present inside the directory
@@ -292,7 +292,7 @@ func TestWAL_OldestLogDeletion(t *testing.T) {
 	}
 
 	// Recover entries from WAL (sanity check)
-	_, err = walog.ReadAll()
+	_, err = walog.ReadAll(false)
 	assert.NoError(t, err, "Failed to recover entries")
 
 	// Validate that the oldest log file was deleted
@@ -326,7 +326,7 @@ func TestWAL_ReadFromOffset(t *testing.T) {
 	}
 
 	// Recover entries from WAL
-	recoveredEntries, err := walog.ReadAllFromOffset(0)
+	recoveredEntries, err := walog.ReadAllFromOffset(0, false)
 	assert.NoError(t, err, "Failed to recover entries")
 
 	// Check if recovered entries match the written entries
@@ -368,4 +368,100 @@ func assertCollectionsAreIdentical(t *testing.T, expected []Record, actual []*ty
 		assert.Equal(t, expected[entryIndex].Op, unMarshalledEntry.Op, "Recovered entry does not match written entry (Op)")
 		assert.True(t, reflect.DeepEqual(expected[entryIndex].Value, unMarshalledEntry.Value), "Recovered entry does not match written entry (Value)")
 	}
+}
+
+// Write entries to the wal, create checkpoint, write more entries. ReadAll should return all entries after the offset.
+func TestWAL_Checkpoint(t *testing.T) {
+	dirPath := "test_wal.log"
+	defer os.RemoveAll(dirPath) // Cleanup after the test
+
+	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, maxSegments)
+	assert.NoError(t, err, "Failed to create WAL")
+	defer walog.Close()
+
+	// Test data
+	entries := []Record{
+		{Key: "key1", Value: []byte("value1"), Op: InsertOperation},
+		{Key: "key2", Value: []byte("value2"), Op: InsertOperation},
+		{Key: "key3", Op: DeleteOperation},
+	}
+
+	// Write entries to WAL
+	for _, entry := range entries {
+		marshaledEntry, err := json.Marshal(entry)
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
+	}
+
+	// Create checkpoint
+	assert.NoError(t, walog.CreateCheckpoint([]byte("checkpoint info")), "Failed to create checkpoint")
+
+	// Write entries to WAL
+	for _, entry := range entries {
+		marshaledEntry, err := json.Marshal(entry)
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
+	}
+	err = walog.Sync()
+	assert.NoError(t, err, "Failed to sync")
+
+	// Recover entries from WAL after the checkpoint
+	recoveredEntries, err := walog.ReadAll(true)
+	assert.NoError(t, err, "Failed to recover entries")
+
+	assert.Equal(t, 1+len(entries), len(recoveredEntries), "Number of entries do not match")
+	// Check if recovered entries match the written entries
+	for entryIndex, entry := range recoveredEntries {
+		if entryIndex == 0 {
+			assert.NotNil(t, entry.IsCheckpoint, "Expected checkpoint entry")
+			assert.Equal(t, true, entry.GetIsCheckpoint(), "Expected checkpoint entry")
+			assert.Equal(t, []byte("checkpoint info"), entry.GetData(), "Checkpoint info does not match")
+			continue
+		}
+		unMarshalledEntry := Record{}
+		assert.NoError(t, json.Unmarshal(entry.Data, &unMarshalledEntry), "Failed to unmarshal entry")
+
+		// Can't use deep equal because of the sequence number
+		assert.Equal(t, entries[entryIndex-1].Key, unMarshalledEntry.Key, "Recovered entry does not match written entry (Key)")
+		assert.Equal(t, entries[entryIndex-1].Op, unMarshalledEntry.Op, "Recovered entry does not match written entry (Op)")
+		assert.True(t, reflect.DeepEqual(entries[entryIndex-1].Value, unMarshalledEntry.Value), "Recovered entry does not match written entry (Value)")
+	}
+}
+
+func TestWAL_NoWritesAfterCheckpoint(t *testing.T) {
+	dirPath := "test_wal.log"
+	defer os.RemoveAll(dirPath) // Cleanup after the test
+
+	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, maxSegments)
+	assert.NoError(t, err, "Failed to create WAL")
+	defer walog.Close()
+
+	// Test data
+	entries := []Record{
+		{Key: "key1", Value: []byte("value1"), Op: InsertOperation},
+		{Key: "key2", Value: []byte("value2"), Op: InsertOperation},
+		{Key: "key3", Op: DeleteOperation},
+	}
+
+	// Write entries to WAL
+	for _, entry := range entries {
+		marshaledEntry, err := json.Marshal(entry)
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
+	}
+
+	// Create checkpoint
+	assert.NoError(t, walog.CreateCheckpoint([]byte("checkpoint info")), "Failed to create checkpoint")
+	err = walog.Sync()
+	assert.NoError(t, err, "Failed to sync")
+
+	// Recover entries from WAL after the checkpoint
+	recoveredEntries, err := walog.ReadAll(true)
+	assert.NoError(t, err, "Failed to recover entries")
+
+	assert.Equal(t, 1, len(recoveredEntries), "Number of entries do not match")
+	// The only entry should be the checkpoint entry
+	assert.NotNil(t, recoveredEntries[0].IsCheckpoint, "Expected checkpoint entry")
+	assert.Equal(t, true, recoveredEntries[0].GetIsCheckpoint(), "Expected checkpoint entry")
+	assert.Equal(t, []byte("checkpoint info"), recoveredEntries[0].GetData(), "Checkpoint info does not match")
 }
