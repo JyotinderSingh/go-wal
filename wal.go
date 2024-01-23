@@ -44,7 +44,7 @@ type WAL struct {
 // Initialize a new WAL. If the directory does not exist, it will be created.
 // If the directory exists, the last log segment will be opened and the last
 // sequence number will be read from it.
-// enableFsync enables fsync on the log segment file after every write.
+// enableFsync enables fsync on the log segment file every time the log flushes.
 // maxFileSize is the maximum size of a log segment file in bytes.
 // maxSegments is the maximum number of log segment files to keep.
 func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments int) (*WAL, error) {
