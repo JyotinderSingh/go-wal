@@ -41,7 +41,12 @@ type WAL struct {
 	cancel              context.CancelFunc
 }
 
-// Initialize a new WAL
+// Initialize a new WAL. If the directory does not exist, it will be created.
+// If the directory exists, the last log segment will be opened and the last
+// sequence number will be read from it.
+// enableFsync enables fsync on the log segment file after every write.
+// maxFileSize is the maximum size of a log segment file in bytes.
+// maxSegments is the maximum number of log segment files to keep.
 func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments int) (*WAL, error) {
 	// Create the directory if it doesn't exist
 	if err := os.MkdirAll(directory, 0755); err != nil {
@@ -110,11 +115,14 @@ func OpenWAL(directory string, enableFsync bool, maxFileSize int64, maxSegments 
 	return wal, nil
 }
 
-// WriteEntry writes an entry to the WAL
+// WriteEntry writes an entry to the WAL.
 func (wal *WAL) WriteEntry(data []byte) error {
 	return wal.writeEntry(data, false)
 }
 
+// CreateCheckpoint creates a checkpoint entry in the WAL. A checkpoint entry
+// is a special entry that can be used to restore the state of the system to
+// the point when the checkpoint was created.
 func (wal *WAL) CreateCheckpoint(data []byte) error {
 	return wal.writeEntry(data, true)
 }
@@ -268,7 +276,7 @@ func (wal *WAL) findOldestSegmentFile(files []string) (string, error) {
 	return oldestSegmentFilePath, nil
 }
 
-// Close the WAL file
+// Close the WAL file. It also calls Sync() on the WAL.
 func (wal *WAL) Close() error {
 	wal.cancel()
 	if err := wal.Sync(); err != nil {
@@ -277,7 +285,9 @@ func (wal *WAL) Close() error {
 	return wal.currentSegment.Close()
 }
 
-// Read all entries from the WAL
+// Read all entries from the WAL. If readFromCheckpoint is true, it will return
+// all the entries from the last checkpoint (if no checkpoint is found, it will
+// return an empty slice.)
 func (wal *WAL) ReadAll(readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
 	file, err := os.OpenFile(wal.currentSegment.Name(), os.O_RDONLY, 0644)
 	if err != nil {
@@ -294,7 +304,9 @@ func (wal *WAL) ReadAll(readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
 }
 
 // Starts reading from log segment files starting from the given offset
-// (Segment Index) and returns all the entries
+// (Segment Index) and returns all the entries. If readFromCheckpoint is true,
+// it will return all the entries from the last checkpoint (if no checkpoint is
+// found, it will return an empty slice.)
 func (wal *WAL) ReadAllFromOffset(offset int, readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
 	// Get the list of log segment files in the directory
 	files, err := filepath.Glob(filepath.Join(wal.directory, segmentPrefix+"*"))
@@ -376,7 +388,8 @@ func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*walpb.WA
 }
 
 // Writes out any data in the WAL's in-memory buffer to the segment file. If
-// fsync is enabled, it also calls fsync on the segment file.
+// fsync is enabled, it also calls fsync on the segment file. It also resets
+// the synchronization timer.
 func (wal *WAL) Sync() error {
 	if err := wal.bufWriter.Flush(); err != nil {
 		return err
