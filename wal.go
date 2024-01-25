@@ -295,9 +295,13 @@ func (wal *WAL) ReadAll(readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
 	}
 	defer file.Close()
 
-	entries, _, err := readAllEntriesFromFile(file, readFromCheckpoint)
+	entries, checkpoint, err := readAllEntriesFromFile(file, readFromCheckpoint)
 	if err != nil {
 		return entries, err
+	}
+
+	if readFromCheckpoint && checkpoint <= 0 {
+		return entries[:0], nil
 	}
 
 	return entries, nil
@@ -352,7 +356,6 @@ func (wal *WAL) ReadAllFromOffset(offset int, readFromCheckpoint bool) ([]*walpb
 
 func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*walpb.WAL_Entry, uint64, error) {
 	var entries []*walpb.WAL_Entry
-	var foundCheckpoint bool
 	checkpointLogSequenceNo := uint64(0)
 	for {
 		var size int32
@@ -377,19 +380,12 @@ func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*walpb.WA
 		// we should return the entries from the last checkpoint. So we empty the
 		// entries slice and start appending entries from the checkpoint.
 		if entry.IsCheckpoint != nil && entry.GetIsCheckpoint() {
-			foundCheckpoint = true
 			checkpointLogSequenceNo = entry.GetLogSequenceNumber()
 			// Empty the entries slice
 			entries = entries[:0]
 		}
 
 		entries = append(entries, entry)
-	}
-
-	// If we are reading from checkpoint and no checkpoint was found, return an
-	// empty slice.
-	if readFromCheckpoint && !foundCheckpoint {
-		return entries[:0], checkpointLogSequenceNo, nil
 	}
 
 	return entries, checkpointLogSequenceNo, nil

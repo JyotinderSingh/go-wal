@@ -428,6 +428,83 @@ func TestWAL_Checkpoint(t *testing.T) {
 	}
 }
 
+// Performs the following operations:
+// 1. Write entries to the wal
+// 2. Create checkpoint
+// 3. Write entries to the wal
+// 4. Create checkpoint
+// 5. Write entries to the wal
+// 6. ReadAllFromOffset(-1, true)
+// 7. Verify that only the entries after the last checkpoint are returned.
+func TestWAL_ReadFromOffsetCheckpoint(t *testing.T) {
+	dirPath := "test_wal.log"
+	defer os.RemoveAll(dirPath) // Cleanup after the test
+
+	walog, err := wal.OpenWAL(dirPath, true, 32, 5)
+	assert.NoError(t, err, "Failed to create WAL")
+	defer walog.Close()
+
+	// Test data
+	entries := []Record{
+		{Key: "key1", Value: []byte("value1"), Op: InsertOperation},
+		{Key: "key2", Value: []byte("value2"), Op: InsertOperation},
+		{Key: "key3", Value: []byte("value3"), Op: InsertOperation},
+		{Key: "key3", Op: DeleteOperation},
+		{Key: "key4", Value: []byte("value4"), Op: InsertOperation},
+	}
+
+	// Write entries to WAL
+	for _, entry := range entries {
+		marshaledEntry, err := json.Marshal(entry)
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
+	}
+
+	// Create checkpoint
+	assert.NoError(t, walog.CreateCheckpoint([]byte("checkpoint info")), "Failed to create checkpoint")
+
+	// Write entries to WAL
+	for _, entry := range entries {
+		marshaledEntry, err := json.Marshal(entry)
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
+	}
+
+	// Create checkpoint
+	assert.NoError(t, walog.CreateCheckpoint([]byte("checkpoint info")), "Failed to create checkpoint")
+
+	// Write entries to WAL
+	for _, entry := range entries {
+		marshaledEntry, err := json.Marshal(entry)
+		assert.NoError(t, err, "Failed to marshal entry")
+		assert.NoError(t, walog.WriteEntry(marshaledEntry), "Failed to write entry")
+	}
+	err = walog.Sync()
+	assert.NoError(t, err, "Failed to sync")
+
+	// Recover entries from WAL after the checkpoint
+	recoveredEntries, err := walog.ReadAllFromOffset(-1, true)
+	assert.NoError(t, err, "Failed to recover entries")
+
+	assert.Equal(t, 1+len(entries), len(recoveredEntries), "Number of entries do not match")
+	// Check if recovered entries match the written entries
+	for entryIndex, entry := range recoveredEntries {
+		if entryIndex == 0 {
+			assert.NotNil(t, entry.IsCheckpoint, "Expected checkpoint entry")
+			assert.Equal(t, true, entry.GetIsCheckpoint(), "Expected checkpoint entry")
+			assert.Equal(t, []byte("checkpoint info"), entry.GetData(), "Checkpoint info does not match")
+			continue
+		}
+		unMarshalledEntry := Record{}
+		assert.NoError(t, json.Unmarshal(entry.Data, &unMarshalledEntry), "Failed to unmarshal entry")
+
+		// Can't use deep equal because of the sequence number
+		assert.Equal(t, entries[entryIndex-1].Key, unMarshalledEntry.Key, "Recovered entry does not match written entry (Key)")
+		assert.Equal(t, entries[entryIndex-1].Op, unMarshalledEntry.Op, "Recovered entry does not match written entry (Op)")
+		assert.True(t, reflect.DeepEqual(entries[entryIndex-1].Value, unMarshalledEntry.Value), "Recovered entry does not match written entry (Value)")
+	}
+}
+
 func TestWAL_NoWritesAfterCheckpoint(t *testing.T) {
 	dirPath := "test_wal.log"
 	defer os.RemoveAll(dirPath) // Cleanup after the test
