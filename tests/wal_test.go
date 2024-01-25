@@ -22,8 +22,9 @@ const (
 )
 
 func TestWAL_WriteAndRecover(t *testing.T) {
+	t.Parallel()
 	// Setup: Create a temporary file for the WAL
-	dirPath := "test_wal.log"
+	dirPath := "TestWAL_WriteAndRecover.log"
 	defer os.RemoveAll(dirPath) // Cleanup after the test
 
 	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, maxSegments)
@@ -63,7 +64,8 @@ func TestWAL_WriteAndRecover(t *testing.T) {
 // Test to verify that the log sequence number is incremented correctly
 // after reopening the WAL.
 func TestWAL_LogSequenceNumber(t *testing.T) {
-	dirPath := "test_wal.log"
+	t.Parallel()
+	dirPath := "TestWAL_LogSequenceNumber.log"
 	defer os.RemoveAll(dirPath) // Cleanup after the test
 
 	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, maxSegments)
@@ -113,7 +115,8 @@ func TestWAL_LogSequenceNumber(t *testing.T) {
 }
 
 func TestWAL_WriteRepairRead(t *testing.T) {
-	dirPath := "test_wal"
+	t.Parallel()
+	dirPath := "TestWAL_WriteRepairRead"
 	defer os.RemoveAll(dirPath)
 
 	// Create a new WAL
@@ -167,7 +170,8 @@ func TestWAL_WriteRepairRead(t *testing.T) {
 // Similar to previous function, but with a different corruption pattern
 // (corrupting the CRC instead of writing random data).
 func TestWAL_WriteRepairRead2(t *testing.T) {
-	dirPath := "test_wal"
+	t.Parallel()
+	dirPath := "TestWAL_WriteRepairRead2"
 
 	defer os.RemoveAll(dirPath)
 
@@ -217,7 +221,8 @@ func TestWAL_WriteRepairRead2(t *testing.T) {
 // Test to verify log segment rotation. Creates very large log files (each file can only go upto 64 mb) to test
 // the rotation logic.
 func TestWAL_LogSegmentRotation(t *testing.T) {
-	dirPath := "test_wal"
+	t.Parallel()
+	dirPath := "TestWAL_LogSegmentRotation"
 	defer os.RemoveAll(dirPath)
 
 	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, maxSegments)
@@ -251,7 +256,8 @@ func TestWAL_LogSegmentRotation(t *testing.T) {
 }
 
 func TestWAL_OldestLogDeletion(t *testing.T) {
-	dirPath := "test_wal"
+	t.Parallel()
+	dirPath := "TestWAL_OldestLogDeletion"
 	defer os.RemoveAll(dirPath)
 
 	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, 3)
@@ -308,7 +314,8 @@ func TestWAL_OldestLogDeletion(t *testing.T) {
 
 // Writes 10000 entries to the WAL and then reads them back from offset 0.
 func TestWAL_ReadFromOffset(t *testing.T) {
-	directory := "test_wal"
+	t.Parallel()
+	directory := "TestWAL_ReadFromOffset"
 	defer os.RemoveAll(directory)
 
 	walog, err := wal.OpenWAL(directory, true, maxFileSize, maxSegments)
@@ -372,7 +379,8 @@ func assertCollectionsAreIdentical(t *testing.T, expected []Record, actual []*ty
 
 // Write entries to the wal, create checkpoint, write more entries. ReadAll should return all entries after the offset.
 func TestWAL_Checkpoint(t *testing.T) {
-	dirPath := "test_wal.log"
+	t.Parallel()
+	dirPath := "TestWAL_Checkpoint"
 	defer os.RemoveAll(dirPath) // Cleanup after the test
 
 	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, maxSegments)
@@ -437,7 +445,8 @@ func TestWAL_Checkpoint(t *testing.T) {
 // 6. ReadAllFromOffset(-1, true)
 // 7. Verify that only the entries after the last checkpoint are returned.
 func TestWAL_ReadFromOffsetCheckpoint(t *testing.T) {
-	dirPath := "test_wal.log"
+	t.Parallel()
+	dirPath := "TestWAL_ReadFromOffsetCheckpoint"
 	defer os.RemoveAll(dirPath) // Cleanup after the test
 
 	walog, err := wal.OpenWAL(dirPath, true, 32, 5)
@@ -506,7 +515,8 @@ func TestWAL_ReadFromOffsetCheckpoint(t *testing.T) {
 }
 
 func TestWAL_NoWritesAfterCheckpoint(t *testing.T) {
-	dirPath := "test_wal.log"
+	t.Parallel()
+	dirPath := "TestWAL_NoWritesAfterCheckpoint"
 	defer os.RemoveAll(dirPath) // Cleanup after the test
 
 	walog, err := wal.OpenWAL(dirPath, true, maxFileSize, maxSegments)
