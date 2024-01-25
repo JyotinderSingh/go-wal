@@ -144,36 +144,12 @@ func (wal *WAL) writeEntry(data []byte, isCheckpoint bool) error {
 
 	if isCheckpoint {
 		if err := wal.Sync(); err != nil {
-			return fmt.Errorf("Could not create checkpoint, error while syncing: %v", err)
+			return fmt.Errorf("could not create checkpoint, error while syncing: %v", err)
 		}
 		entry.IsCheckpoint = &isCheckpoint
 	}
 
 	return wal.writeEntryToBuffer(entry)
-}
-
-func (wal *WAL) createEntry(data []byte) (*walpb.WAL_Entry, error) {
-	wal.lastSequenceNo++
-	entry := &walpb.WAL_Entry{
-		LogSequenceNumber: wal.lastSequenceNo,
-		Data:              data,
-		CRC:               crc32.ChecksumIEEE(append(data, byte(wal.lastSequenceNo))),
-	}
-
-	return entry, nil
-}
-
-func (wal *WAL) createCheckpointEntry(data []byte) (*walpb.WAL_Entry, error) {
-	wal.lastSequenceNo++
-	isCheckpoint := true
-	entry := &walpb.WAL_Entry{
-		LogSequenceNumber: wal.lastSequenceNo,
-		Data:              data,
-		CRC:               crc32.ChecksumIEEE(append(data, byte(wal.lastSequenceNo))),
-		IsCheckpoint:      &isCheckpoint,
-	}
-
-	return entry, nil
 }
 
 func (wal *WAL) writeEntryToBuffer(entry *walpb.WAL_Entry) error {
