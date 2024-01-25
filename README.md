@@ -16,7 +16,22 @@ go-wal is a Write-Ahead Log (WAL) implementation in Go. It has high read and wri
 
 ## Usage
 
-The WAL assumes that at a given time either you are writing to the WAL, or you are reading from it. You cannot write and read from the WAL at the same time.
+### Concurrency
+
+1. **Read-write exclusivity:** The WAL operates in a mutually exclusive manner. You can either write to it or read from it at a given time. Simultaneous read and write operations are not permitted.
+1. **Thread safety:** The WAL is thread-safe, enabling concurrent writes from multiple threads without data corruption.
+
+### Log Segments
+
+1. **Immutability:** Log segments are immutable once created. Existing entries cannot be modified after creation.
+1. **Numbering:** Log segment numbers start at 0 and increment sequentially.
+1. **Sequence numbers:** Log entries are assigned sequence numbers starting at 1 and continue sequentially across log segments.
+
+### Repair Mechanism
+
+1. **Selective repair:** The WAL targets the last segment for repair. If it's corrupted, a new segment containing all repaired entries replaces the original.
+1. **Corruption propagation:** Segments following the first corrupted segment are assumed to be corrupted and discarded due to potential data integrity issues beyond the first corruption.
+1. **Manual intervention:** Manually delete corrupted segments following the first corrupted segment before running the repair process.
 
 ### Creating a WAL
 
@@ -70,6 +85,13 @@ entries, err = wal.ReadAllFromOffset(offset, false)
 
 // Read all entries from a given offset after the checkpoint.
 entries, err = wal.ReadAllFromOffset(offset, true)
+```
+
+### Restoring from the last available checkpoint.
+
+```go
+// Starts scanning from the first available segment, and returns all entries after the last checkpoint.
+entries, err = wal.ReadAllFromOffset(-1, true)
 ```
 
 ### Repairing the WAL
