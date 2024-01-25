@@ -194,7 +194,7 @@ func (wal *WAL) rotateLogIfNeeded() error {
 		return err
 	}
 
-	if fileInfo.Size() >= wal.maxFileSize {
+	if fileInfo.Size()+int64(wal.bufWriter.Buffered()) >= wal.maxFileSize {
 		if err := wal.rotateLog(); err != nil {
 			return err
 		}
@@ -295,7 +295,7 @@ func (wal *WAL) ReadAll(readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
 	}
 	defer file.Close()
 
-	entries, err := readAllEntriesFromFile(file, readFromCheckpoint)
+	entries, _, err := readAllEntriesFromFile(file, readFromCheckpoint)
 	if err != nil {
 		return entries, err
 	}
@@ -315,6 +315,7 @@ func (wal *WAL) ReadAllFromOffset(offset int, readFromCheckpoint bool) ([]*walpb
 	}
 
 	var entries []*walpb.WAL_Entry
+	prevCheckpointLogSequenceNo := uint64(0)
 
 	for _, file := range files {
 		// Get the segment index from the file name
@@ -333,9 +334,14 @@ func (wal *WAL) ReadAllFromOffset(offset int, readFromCheckpoint bool) ([]*walpb
 			return nil, err
 		}
 
-		entries_from_segment, err := readAllEntriesFromFile(file, readFromCheckpoint)
+		entries_from_segment, checkpoint, err := readAllEntriesFromFile(file, readFromCheckpoint)
 		if err != nil {
 			return entries, err
+		}
+
+		if readFromCheckpoint && checkpoint > prevCheckpointLogSequenceNo {
+			entries = entries[:0]
+			prevCheckpointLogSequenceNo = checkpoint
 		}
 
 		entries = append(entries, entries_from_segment...)
@@ -344,26 +350,27 @@ func (wal *WAL) ReadAllFromOffset(offset int, readFromCheckpoint bool) ([]*walpb
 	return entries, nil
 }
 
-func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
+func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*walpb.WAL_Entry, uint64, error) {
 	var entries []*walpb.WAL_Entry
 	var foundCheckpoint bool
+	checkpointLogSequenceNo := uint64(0)
 	for {
 		var size int32
 		if err := binary.Read(file, binary.LittleEndian, &size); err != nil {
 			if err == io.EOF {
 				break
 			}
-			return entries, err
+			return entries, checkpointLogSequenceNo, err
 		}
 
 		data := make([]byte, size)
 		if _, err := io.ReadFull(file, data); err != nil {
-			return entries, err
+			return entries, checkpointLogSequenceNo, err
 		}
 
 		entry, err := unmarshalAndVerifyEntry(data)
 		if err != nil {
-			return entries, err
+			return entries, checkpointLogSequenceNo, err
 		}
 
 		// If we are reading from checkpoint and we find a checkpoint entry, we
@@ -371,6 +378,7 @@ func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*walpb.WA
 		// entries slice and start appending entries from the checkpoint.
 		if entry.IsCheckpoint != nil && entry.GetIsCheckpoint() {
 			foundCheckpoint = true
+			checkpointLogSequenceNo = entry.GetLogSequenceNumber()
 			// Empty the entries slice
 			entries = entries[:0]
 		}
@@ -381,10 +389,10 @@ func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*walpb.WA
 	// If we are reading from checkpoint and no checkpoint was found, return an
 	// empty slice.
 	if readFromCheckpoint && !foundCheckpoint {
-		return entries[:0], nil
+		return entries[:0], checkpointLogSequenceNo, nil
 	}
 
-	return entries, nil
+	return entries, checkpointLogSequenceNo, nil
 }
 
 // Writes out any data in the WAL's in-memory buffer to the segment file. If

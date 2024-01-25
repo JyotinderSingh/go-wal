@@ -326,7 +326,7 @@ func TestWAL_ReadFromOffset(t *testing.T) {
 	}
 
 	// Recover entries from WAL
-	recoveredEntries, err := walog.ReadAllFromOffset(0, false)
+	recoveredEntries, err := walog.ReadAllFromOffset(-1, false)
 	assert.NoError(t, err, "Failed to recover entries")
 
 	// Check if recovered entries match the written entries
