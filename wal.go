@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	walpb "github.com/JyotinderSingh/go-wal/types"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -136,7 +135,7 @@ func (wal *WAL) writeEntry(data []byte, isCheckpoint bool) error {
 	}
 
 	wal.lastSequenceNo++
-	entry := &walpb.WAL_Entry{
+	entry := &WAL_Entry{
 		LogSequenceNumber: wal.lastSequenceNo,
 		Data:              data,
 		CRC:               crc32.ChecksumIEEE(append(data, byte(wal.lastSequenceNo))),
@@ -152,7 +151,7 @@ func (wal *WAL) writeEntry(data []byte, isCheckpoint bool) error {
 	return wal.writeEntryToBuffer(entry)
 }
 
-func (wal *WAL) writeEntryToBuffer(entry *walpb.WAL_Entry) error {
+func (wal *WAL) writeEntryToBuffer(entry *WAL_Entry) error {
 	marshaledEntry := MustMarshal(entry)
 
 	size := int32(len(marshaledEntry))
@@ -264,7 +263,7 @@ func (wal *WAL) Close() error {
 // Read all entries from the WAL. If readFromCheckpoint is true, it will return
 // all the entries from the last checkpoint (if no checkpoint is found, it will
 // return an empty slice.)
-func (wal *WAL) ReadAll(readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
+func (wal *WAL) ReadAll(readFromCheckpoint bool) ([]*WAL_Entry, error) {
 	file, err := os.OpenFile(wal.currentSegment.Name(), os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
@@ -287,14 +286,14 @@ func (wal *WAL) ReadAll(readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
 // (Segment Index) and returns all the entries. If readFromCheckpoint is true,
 // it will return all the entries from the last checkpoint (if no checkpoint is
 // found, it will return an empty slice.)
-func (wal *WAL) ReadAllFromOffset(offset int, readFromCheckpoint bool) ([]*walpb.WAL_Entry, error) {
+func (wal *WAL) ReadAllFromOffset(offset int, readFromCheckpoint bool) ([]*WAL_Entry, error) {
 	// Get the list of log segment files in the directory
 	files, err := filepath.Glob(filepath.Join(wal.directory, segmentPrefix+"*"))
 	if err != nil {
 		return nil, err
 	}
 
-	var entries []*walpb.WAL_Entry
+	var entries []*WAL_Entry
 	prevCheckpointLogSequenceNo := uint64(0)
 
 	for _, file := range files {
@@ -330,8 +329,8 @@ func (wal *WAL) ReadAllFromOffset(offset int, readFromCheckpoint bool) ([]*walpb
 	return entries, nil
 }
 
-func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*walpb.WAL_Entry, uint64, error) {
-	var entries []*walpb.WAL_Entry
+func readAllEntriesFromFile(file *os.File, readFromCheckpoint bool) ([]*WAL_Entry, uint64, error) {
+	var entries []*WAL_Entry
 	checkpointLogSequenceNo := uint64(0)
 	for {
 		var size int32
@@ -416,7 +415,7 @@ func (wal *WAL) keepSyncing() {
 // corruption and overwrites the existing WAL file with the repaired entries.
 // It checks the CRC of each entry to verify if it is corrupted, and if the CRC
 // is invalid, the file is truncated at that point.
-func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
+func (wal *WAL) Repair() ([]*WAL_Entry, error) {
 	files, err := filepath.Glob(filepath.Join(wal.directory, segmentPrefix+"*"))
 	if err != nil {
 		return nil, err
@@ -446,7 +445,7 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 		return nil, err
 	}
 
-	var entries []*walpb.WAL_Entry
+	var entries []*WAL_Entry
 
 	for {
 		// Read the size of the next entry.
@@ -475,7 +474,7 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 		}
 
 		// Deserialize the entry.
-		var entry walpb.WAL_Entry
+		var entry WAL_Entry
 		if err := proto.Unmarshal(data, &entry); err != nil {
 			if err := wal.replaceWithFixedFile(entries); err != nil {
 				return entries, err
@@ -500,7 +499,7 @@ func (wal *WAL) Repair() ([]*walpb.WAL_Entry, error) {
 
 // replaceWithFixedFile replaces the existing WAL file with the given entries
 // atomically.
-func (wal *WAL) replaceWithFixedFile(entries []*walpb.WAL_Entry) error {
+func (wal *WAL) replaceWithFixedFile(entries []*WAL_Entry) error {
 	// Create a temporary file to make the operation look atomic.
 	tempFilePath := fmt.Sprintf("%s.tmp", wal.currentSegment.Name())
 	tempFile, err := os.OpenFile(tempFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -552,7 +551,7 @@ func (wal *WAL) getLastSequenceNo() (uint64, error) {
 
 // getLastEntryInLog iterates through all the entries of the log and returns the
 // last entry.
-func (wal *WAL) getLastEntryInLog() (*walpb.WAL_Entry, error) {
+func (wal *WAL) getLastEntryInLog() (*WAL_Entry, error) {
 	file, err := os.OpenFile(wal.currentSegment.Name(), os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
@@ -561,7 +560,7 @@ func (wal *WAL) getLastEntryInLog() (*walpb.WAL_Entry, error) {
 
 	var previousSize int32
 	var offset int64
-	var entry *walpb.WAL_Entry
+	var entry *WAL_Entry
 
 	for {
 		var size int32

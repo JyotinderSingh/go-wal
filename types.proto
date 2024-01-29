@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option go_package = "github.com/JyotinderSingh/go-wal/types";
+option go_package = "github.com/JyotinderSingh/go-wal/wal";
 
 message WAL_Entry {
     uint64   logSequenceNumber = 1;

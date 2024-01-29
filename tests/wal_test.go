@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/JyotinderSingh/go-wal"
-	"github.com/JyotinderSingh/go-wal/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -363,7 +362,7 @@ func generateTestData() []Record {
 	return entries
 }
 
-func assertCollectionsAreIdentical(t *testing.T, expected []Record, actual []*types.WAL_Entry) {
+func assertCollectionsAreIdentical(t *testing.T, expected []Record, actual []*wal.WAL_Entry) {
 	assert.Equal(t, len(expected), len(actual), "Number of entries do not match")
 
 	for entryIndex, entry := range actual {

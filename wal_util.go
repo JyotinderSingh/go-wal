@@ -7,14 +7,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	walpb "github.com/JyotinderSingh/go-wal/types"
 )
 
 // unmarshalAndVerifyEntry unmarshals the given data into a WAL entry and
 // verifies the CRC of the entry. Only returns an error if the CRC is invalid.
-func unmarshalAndVerifyEntry(data []byte) (*walpb.WAL_Entry, error) {
-	var entry walpb.WAL_Entry
+func unmarshalAndVerifyEntry(data []byte) (*WAL_Entry, error) {
+	var entry WAL_Entry
 	MustUnmarshal(data, &entry)
 
 	if !verifyCRC(&entry) {
@@ -25,7 +23,7 @@ func unmarshalAndVerifyEntry(data []byte) (*walpb.WAL_Entry, error) {
 }
 
 // Validates whether the given entry has a valid CRC.
-func verifyCRC(entry *walpb.WAL_Entry) bool {
+func verifyCRC(entry *WAL_Entry) bool {
 	// Reset the entry CRC for the verification.
 	actualCRC := crc32.ChecksumIEEE(append(entry.GetData(), byte(entry.GetLogSequenceNumber())))
 
